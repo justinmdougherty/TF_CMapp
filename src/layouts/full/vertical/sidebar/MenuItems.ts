@@ -14,15 +14,14 @@ interface MenuitemsType {
   variant?: string;
   external?: boolean;
 }
+
+// Import required icons from Tabler Icons
 import {
-  IconAward,
-  IconBoxMultiple,
-  IconPoint,
-  IconBan,
-  IconStar,
-  IconMoodSmile,
-  IconAperture,
   IconLayoutDashboard,
+  IconClipboardList, // For Inventory
+  IconCalendarEvent,  // For Calendar
+  IconTicket,         // For Tickets
+  IconNotes,          // For Notes
 } from '@tabler/icons-react';
 
 const Menuitems: MenuitemsType[] = [
@@ -30,103 +29,43 @@ const Menuitems: MenuitemsType[] = [
     navlabel: true,
     subheader: 'Home',
   },
-
   {
     id: uniqueId(),
-    title: 'Home',
+    title: 'Projects Dashboard',
     icon: IconLayoutDashboard,
     href: '/dashboard',
-   },
+  },
   {
     navlabel: true,
-    subheader: 'Other',
+    subheader: 'Management',
   },
   {
     id: uniqueId(),
-    title: 'Menu Level',
-    icon: IconBoxMultiple,
-    href: '/menulevel/',
-    children: [
-      {
-        id: uniqueId(),
-        title: 'Level 1',
-        icon: IconPoint,
-        href: '/l1',
-      },
-      {
-        id: uniqueId(),
-        title: 'Level 1.1',
-        icon: IconPoint,
-        href: '/l1.1',
-        children: [
-          {
-            id: uniqueId(),
-            title: 'Level 2',
-            icon: IconPoint,
-            href: '/l2',
-          },
-          {
-            id: uniqueId(),
-            title: 'Level 2.1',
-            icon: IconPoint,
-            href: '/l2.1',
-            children: [
-              {
-                id: uniqueId(),
-                title: 'Level 3',
-                icon: IconPoint,
-                href: '/l3',
-              },
-              {
-                id: uniqueId(),
-                title: 'Level 3.1',
-                icon: IconPoint,
-                href: '/l3.1',
-              },
-            ],
-          },
-        ],
-      },
-    ],
+    title: 'Inventory',
+    icon: IconClipboardList, // Example icon
+    href: '/inventory',
+  },
+  {
+    navlabel: true,
+    subheader: 'Apps',
   },
   {
     id: uniqueId(),
-    title: 'Disabled',
-    icon: IconBan,
-    href: '/',
-    disabled: true,
+    title: 'Notes',
+    icon: IconNotes,
+    href: '/apps/notes',
   },
   {
     id: uniqueId(),
-    title: 'SubCaption',
-    subtitle: 'This is the sutitle',
-    icon: IconStar,
-    href: '/',
-  },
-
-  {
-    id: uniqueId(),
-    title: 'Chip',
-    icon: IconAward,
-    href: '/',
-    chip: '9',
-    chipColor: 'primary',
+    title: 'Calendar',
+    icon: IconCalendarEvent,
+    href: '/apps/calendar',
   },
   {
     id: uniqueId(),
-    title: 'Outlined',
-    icon: IconMoodSmile,
-    href: '/',
-    chip: 'outline',
-    variant: 'outlined',
-    chipColor: 'primary',
-  },
-  {
-    id: uniqueId(),
-    title: 'External Link',
-    external: true,
-    icon: IconStar,
-    href: 'https://google.com',
+    title: 'Tickets',
+    icon: IconTicket,
+    href: '/apps/tickets',
   },
 ];
 

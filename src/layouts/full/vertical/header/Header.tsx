@@ -64,7 +64,7 @@ const Header = () => {
         <Search />
         {lgUp ? (
           <>
-            <Navigation />
+            {/* <Navigation /> */}
           </>
         ) : null}
 
