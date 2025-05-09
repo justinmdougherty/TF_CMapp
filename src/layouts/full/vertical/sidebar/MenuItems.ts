@@ -21,7 +21,8 @@ import {
   IconBan,
   IconStar,
   IconMoodSmile,
-  IconAperture
+  IconAperture,
+  IconLayoutDashboard,
 } from '@tabler/icons-react';
 
 const Menuitems: MenuitemsType[] = [
@@ -32,12 +33,10 @@ const Menuitems: MenuitemsType[] = [
 
   {
     id: uniqueId(),
-    title: 'Sample Page',
-    icon: IconAperture,
-    href: '/sample-page',
-    chip: 'New',
-    chipColor: 'secondary',
-  },
+    title: 'Home',
+    icon: IconLayoutDashboard,
+    href: '/dashboard',
+   },
   {
     navlabel: true,
     subheader: 'Other',

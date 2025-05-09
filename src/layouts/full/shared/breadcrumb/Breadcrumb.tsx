@@ -87,7 +87,7 @@ const Breadcrumb = ({ subtitle, items, title, children }: BreadCrumbType) => (
         ) : (
           <>
             <Box sx={{ top: '0px', position: 'absolute' }}>
-              <img src={breadcrumbImg} alt={breadcrumbImg} />
+              {/* <img src={breadcrumbImg} alt={breadcrumbImg} /> <-------------------------- image for page header */} 
             </Box>
           </>
         )}
