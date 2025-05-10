@@ -1,24 +1,52 @@
+// src/theme/LightThemeColors.tsx
+
+// Assuming you've updated DefaultColors.tsx as above for reference to status/text/background
+// Or, you can explicitly define text, background, success, info, error, warning here per theme.
+
 const LightThemeColors = [
   {
-    name: 'BLUE_THEME',
+    name: 'GOVERNMENT_BLUE_THEME', // Renamed for clarity
     palette: {
       primary: {
-        main: '#5D87FF',
-        light: '#ECF2FF',
-        dark: '#4570EA',
+        main: '#0A4A8F', // Professional Navy Blue
+        light: '#E6EFF8', // Lighter, slightly desaturated blue for backgrounds/hover
+        dark: '#073362', // Darker shade
         contrastText: '#ffffff',
       },
       secondary: {
-        main: '#49BEFF',
-        light: '#E8F7FF',
-        dark: '#23afdb',
+        main: '#4A6A80', // Slate Blue/Grey
+        light: '#D8E0E6', // Lighter version
+        dark: '#354B5B', // Darker version
         contrastText: '#ffffff',
       },
+      // Explicitly setting background and text for this theme, overriding DefaultColors if needed
+      background: {
+        default: '#EFF2F5', // Light grey app background
+        paper: '#FFFFFF', // White for cards, paper elements
+      },
+      text: {
+        primary: '#212529', // Almost black
+        secondary: '#495057', // Dark grey
+        disabled: '#ADB5BD', // Medium grey
+      },
+      // Status colors can be inherited from DefaultColors.tsx or overridden here:
+      // success: { main: '#198754', light: '#E8F5E9', dark: '#146C43', contrastText: '#ffffff' },
+      // error: { main: '#DC3545', light: '#FDEDED', dark: '#B02A37', contrastText: '#ffffff' },
+      // warning: { main: '#FFC107', light: '#FFF9E6', dark: '#D9A406', contrastText: '#000000' },
+      // info: { main: '#0D6EFD', light: '#E7F1FF', dark: '#0A58CA', contrastText: '#ffffff' },
+      divider: '#DEE2E6',
     },
   },
+  // You can remove the other themes (AQUA_THEME, PURPLE_THEME, etc.)
+  // if you only want to use this one. For example:
+  // const LightThemeColors = [
+  //   { name: 'GOVERNMENT_BLUE_THEME', palette: { /* ... as above ... */ }},
+  // ];
+  // For now, I'll leave them so you can see the structure, but you should remove unused ones.
   {
-    name: 'AQUA_THEME',
+    name: 'AQUA_THEME', // This is an example of another theme from the template
     palette: {
+      // You would update this too or remove it
       primary: {
         main: '#0074BA',
         light: '#EFF9FF',
