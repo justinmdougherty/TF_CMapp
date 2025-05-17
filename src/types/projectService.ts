@@ -3,7 +3,7 @@ import { Project } from 'src/types/Project'; // <--- IMPORT Project interface
 
 // Define mockProjects here, using the imported Project type
 const mockProjects: Project[] = [
-  { id: 'proj1', name: 'Project Alpha', productionOrderQty: 150, currentProgress: 60, dueDate: '2025-07-15', status: 'On Track' },
+  { id: 'pr001', name: 'PR', productionOrderQty: 48, currentProgress: 30, dueDate: '2025-07-15', status: 'On Track' },
   { id: 'proj2', name: 'Project Beta', productionOrderQty: 75, currentProgress: 30, dueDate: '2025-08-01', status: 'At Risk' },
   { id: 'proj3', name: 'Project Charlie', productionOrderQty: 200, currentProgress: 95, dueDate: '2025-06-20', status: 'On Track' },
   { id: 'proj4', name: 'Project Delta', productionOrderQty: 100, currentProgress: 15, dueDate: '2025-09-10', status: 'Delayed' },

@@ -62,7 +62,7 @@ const FullLayout: FC = () => {
           {activeLayout === 'horizontal' ? <Navigation /> : ''}
           <Container
             sx={{
-              maxWidth: isLayout === 'boxed' ? 'lg' : '100%!important',
+              maxWidth: isLayout === 'boxed' ? 'xl' : '100%!important',
             }}
           >
             {/* ------------------------------------------- */}

@@ -1,10 +1,10 @@
-// src/types/project.ts
+// src/types/project.ts/ 
 export interface Project {
   id: string;
   name: string;
   productionOrderQty: number;
-  currentProgress: number; // Percentage 0-100
-  dueDate: string; // YYYY-MM-DD format
+  currentProgress: number;
+  dueDate: string;
   status: 'On Track' | 'At Risk' | 'Delayed' | 'Completed';
 }
 
