@@ -53,7 +53,7 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
 
 ## Project Progress & TODO List
 
-**Last Updated:** May 10, 2025 (Adjust to the current date when you commit)
+**Last Updated:** May 16, 2025 (Adjust to the current date when you commit)
 
 ### Completed ✅
 
@@ -63,48 +63,51 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
   * [x] Installed initial dependencies and launched the starter application.
 * [x] **Basic Page Structure:**
   * [x] Replaced sample page with a "Projects Dashboard" (`src/views/dashboard/ProjectsDashboardPage.tsx`).
-    * [x] Displays project cards (initially static, now uses TanStack Query with mock data).
+    * [x] Displays project cards using TanStack Query with mock data.
     * [x] Cards are clickable and navigate to project detail pages (e.g., `/project/:projectId`).
-  * [x] Created `ProjectDetailPage.tsx` (now uses TanStack Query with mock data).
+  * [x] `ProjectDetailPage.tsx` (`src/views/project-detail/`) created and uses TanStack Query with mock data.
 * [x] **Navigation:**
   * [x] Removed top header navigation links (Apps, Chat, Calendar, Email).
-  * [x] Updated sidebar navigation (`MenuItems.ts`) to include:
-    * Projects Dashboard
-    * Inventory (placeholder page created)
-    * Notes (placeholder page created)
-    * Calendar (placeholder page created)
-    * Tickets (placeholder page created)
-  * [x] Added routes for new placeholder pages in `Router.tsx`.
+  * [x] Updated sidebar navigation (`MenuItems.ts`) with relevant links and placeholder pages.
+  * [x] Added routes for placeholder pages in `Router.tsx`.
 * [x] **Styling & Theming:**
-  * [x] Discussed moving away from pastel colors for a more professional "Government Blue" theme.
-  * [x] Updated `src/theme/DefaultColors.tsx`, `src/theme/LightThemeColors.tsx`, and `src/theme/DarkThemeColors.tsx` with the new color palette.
-  * [x] Set "GOVERNMENT_BLUE_THEME" as the default active theme in `config.tsx`.
+  * [x] Updated theme files (`DefaultColors.tsx`, `LightThemeColors.tsx`, `DarkThemeColors.tsx`) for a professional "Government Blue" theme.
+  * [x] Set "GOVERNMENT_BLUE_THEME" as the default active theme.
 * [x] **Layout Adjustments:**
   * [x] Removed default image/graphic from the `Breadcrumb` component.
+  * [x] Resolved double breadcrumb issue on Project Detail page.
+  * [x] Adjusted layout of `PRBatchTrackingComponent` for better height (`70vh` for table).
 * [x] **Sidebar Profile:**
-  * [x] Integrated `certificateService.ts` and `node-forge` to fetch user info from `/api/auth/me`.
-  * [x] Updated `SidebarProfile/Profile.tsx` to display dynamic user name and an avatar with initials (Note: Local dev might show "Unknown" due to client cert behavior; works in deployed environment).
-  * [x] Configured Vite proxy in `vite.config.ts` for `/api` calls.
+  * [x] Integrated `certificateService.ts` and `node-forge`.
+  * [x] Updated `SidebarProfile/Profile.tsx` for dynamic user name and initials avatar.
+  * [x] Configured Vite proxy for `/api` calls.
 * [x] **Dependency Integration & File Structure:**
-  * [x] Copied `Scrollbar` component from full template to fix missing import.
+  * [x] Copied `Scrollbar` component from full template.
   * [x] Began process for integrating "Tickets" app (copied files, context, ChildCard, updated router).
-  * [x] Resolved file casing issues for imports (e.g., `src/types/project.ts`).
-  * [x] Centralized `Project` interface to `src/types/project.ts`.
+  * [x] Resolved file casing and import issues (e.g., `src/types/project.ts`).
+  * [x] Centralized `Project` interface.
 * [x] **State Management (Server State - Initial Setup):**
   * [x] Installed `@tanstack/react-query`.
   * [x] Wrapped application with `QueryClientProvider` in `src/main.tsx`.
-  * [x] Created `src/services/projectService.ts` with mock API functions (`WorkspaceProjectsAPI`, `WorkspaceProjectByIdAPI`).
-  * [x] Created `src/hooks/useProjects.ts` with `useGetProjects` and `useGetProjectById` custom hooks.
-  * [x] Refactored `ProjectsDashboardPage.tsx` and `ProjectDetailPage.tsx` to use these hooks for data fetching (currently mock data).
+  * [x] Created `src/services/projectService.ts` with mock API functions.
+  * [x] Created `src/hooks/useProjects.ts` with `useGetProjects` and `useGetProjectById`.
+  * [x] Refactored `ProjectsDashboardPage.tsx` and `ProjectDetailPage.tsx` to use these hooks.
+* [x] **PR Project Specific UI (Mock):**
+  * [x] Created `PRBatchTrackingComponent.tsx` in `src/views/project-detail/`.
+    * [x] Embedded PR-specific step definitions and mock batch data.
+    * [x] Implemented UI for table of units (with select all/individual selection) and step update panel.
+    * [x] Implemented local state logic for updating step statuses for selected units within the mock.
+  * [x] Conditionally rendered `PRBatchTrackingComponent` within `ProjectDetailPage.tsx` when `project.name === 'PR'`.
+  * [x] Resolved TypeScript prop passing error for `projectId`.
 
 ### In Progress 🚧
 
+* [ ] **Layout Adjustments for `PRBatchTrackingComponent`:**
+  * [ ] Make the component wider to utilize more screen space.
 * [ ] **App Integration (from Full Template):**
   * [ ] **Tickets App:** Continue resolving any remaining dependencies or issues. Verify full functionality.
   * [ ] **Notes App:** Integrate from the full template.
-    * Copy files, check/install dependencies, update router, integrate with TanStack Query if it fetches data.
   * [ ] **Calendar App:** Integrate from the full template.
-    * Copy files, check/install dependencies, update router, integrate with TanStack Query if it fetches data.
 * [ ] **State Management (Client-Side - Zustand):**
   * [ ] Install Zustand.
   * [ ] Create initial stores (e.g., for UI state, `authStore` for certificate user info).
@@ -120,33 +123,29 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
     * [ ] Create `src/hooks/useInventory.ts`.
     * [ ] Implement UI with TanStack Query for data fetching.
     * [ ] Create `AddInventoryItemForm.tsx` (static UI initially, then integrate with `useMutation`).
-  * [ ] **Project Detail Page:**
-    * [ ] Expand with sections for project timeline, tasks, documents, etc. Fetch related data using TanStack Query.
+  * [ ] **Project Detail Page (Non-PR Projects):**
+    * [ ] Define and display relevant details for non-PR projects if different from current generic display.
   * [ ] **Production Order Views:**
     * [ ] Design list & detail views.
     * [ ] Create types, services, and hooks for production orders.
     * [ ] Implement UI with TanStack Query.
     * [ ] Create forms (static UI then `useMutation`).
 * **TanStack Query Mutations:**
-  * [ ] Implement `useMutation` hooks in `useProjects.ts` (and other hooks) for `add`, `update`, `delete` operations.
+  * [ ] Implement `useMutation` hooks for `add`, `update`, `delete` operations (projects, inventory, PR batch steps).
   * [ ] Connect forms to these mutations.
-  * [ ] Implement optimistic updates or query invalidation upon successful mutations.
+  * [ ] Implement optimistic updates or query invalidation.
 * **Real-Time Updates (for other users):**
-  * [ ] Evaluate need: Start with TanStack Query's `refetchOnWindowFocus` (default) and `refetchInterval` for key data.
-  * [ ] If more immediate updates are needed, plan for WebSockets/SSE integration on the backend and corresponding client-side invalidation logic with TanStack Query.
+  * [ ] Evaluate need: Start with TanStack Query's `refetchOnWindowFocus` and `refetchInterval`.
+  * [ ] If more immediate updates are needed, plan for WebSockets/SSE.
 * **API Service Layer:**
-  * [ ] Update all `*Service.ts` files to make actual `Workspace` calls to the backend API endpoints once they are defined and available.
+  * [ ] Update all `*Service.ts` files to make actual `Workspace` calls to the backend.
 * **Forms & Validation:**
-  * [ ] Implement form validation robustly (e.g., using `Yup` + `react-hook-form` or similar).
+  * [ ] Implement form validation.
 * **Styling Finalization:**
-  * [ ] Get client feedback on the "Government Blue" theme and make final adjustments.
-  * [ ] Ensure responsiveness across different screen sizes.
-* **Testing:**
-  * [ ] Plan and implement unit and integration tests.
-* **Documentation:**
-  * [ ] Add more detailed documentation for components and services.
-* **Local Dev Certificate Issue:**
-  * [ ] (Low Priority / Later) Investigate options for better client certificate handling in the local Vite dev environment (e.g., mock user data in dev mode for `certificateService`).
+  * [ ] Get client feedback on the theme.
+  * [ ] Ensure responsiveness.
+* **Testing & Documentation.**
+* **Local Dev Certificate Issue (Low Priority / Later).**
 
 ## Notes on Template and Dependencies
 
@@ -157,4 +156,3 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
 * Certificate Parsing: **`node-forge`**.
 * Refer to the full "Modernize" template documentation for details on its components and structure if needed when integrating full app features.
 
----
