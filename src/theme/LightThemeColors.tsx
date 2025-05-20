@@ -5,7 +5,7 @@
 
 const LightThemeColors = [
   {
-    name: 'GOVERNMENT_BLUE_THEME', // Renamed for clarity
+    name: 'GOVERNMENT_BLUE_THEME',
     palette: {
       primary: {
         main: '#0A4A8F', // Professional Navy Blue
@@ -19,22 +19,20 @@ const LightThemeColors = [
         dark: '#354B5B', // Darker version
         contrastText: '#ffffff',
       },
-      // Explicitly setting background and text for this theme, overriding DefaultColors if needed
-      background: {
-        default: '#EFF2F5', // Light grey app background
-        paper: '#FFFFFF', // White for cards, paper elements
-      },
-      text: {
-        primary: '#212529', // Almost black
-        secondary: '#495057', // Dark grey
-        disabled: '#ADB5BD', // Medium grey
-      },
-      // Status colors can be inherited from DefaultColors.tsx or overridden here:
-      // success: { main: '#198754', light: '#E8F5E9', dark: '#146C43', contrastText: '#ffffff' },
-      // error: { main: '#DC3545', light: '#FDEDED', dark: '#B02A37', contrastText: '#ffffff' },
-      // warning: { main: '#FFC107', light: '#FFF9E6', dark: '#D9A406', contrastText: '#000000' },
-      // info: { main: '#0D6EFD', light: '#E7F1FF', dark: '#0A58CA', contrastText: '#ffffff' },
-      divider: '#DEE2E6',
+      // Explicitly setting background and text for this theme,
+      // these will override the ones from DefaultColors.tsx's baselightTheme.
+      // background: {
+      //   default: '#F0F2F5', // Soft, very light grey (less stark)
+      //   paper: '#FFFFFF', // Cards, dialogs, etc., remain white for clarity
+      // },
+      // text: {
+      //   primary: '#1D2939', // Darker grey for strong contrast
+      //   secondary: '#475467', // Medium-dark grey
+      //   disabled: '#98A2B3',
+      // },
+      // divider: '#D0D5DD',
+      // Status colors (success, error, warning, info) will be inherited from baselightTheme
+      // unless you specifically override them here for GOVERNMENT_BLUE_THEME.
     },
   },
   // You can remove the other themes (AQUA_THEME, PURPLE_THEME, etc.)

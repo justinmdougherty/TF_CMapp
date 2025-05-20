@@ -2,38 +2,32 @@
 
 const DarkThemeColors = [
   {
-    name: 'GOVERNMENT_BLUE_THEME', // Match the light theme name
+    name: 'GOVERNMENT_BLUE_THEME', // Match the light theme name for consistency
     palette: {
       primary: {
-        main: '#5D87FF', // A slightly brighter blue for accessibility on dark backgrounds
-        light: '#2E67A0', // Less vibrant light blue for dark mode
-        dark: '#073362', // Darker shade
+        main: '#5D87FF', // A slightly brighter blue for good visibility on dark backgrounds
+        light: '#3E5F8A', // A less intense light blue for dark mode
+        dark: '#0A4A8F', // Consistent dark shade from the light theme's primary
         contrastText: '#ffffff',
       },
       secondary: {
-        main: '#6C757D', // A medium grey for secondary actions
-        light: '#495057', // Darker background/hover for secondary
-        dark: '#ADB5BD', // Lighter for text if needed, or a darker shade of main
-        contrastText: '#ffffff',
+        main: '#6C7E8E', // A muted, professional greyish-blue for secondary elements
+        light: '#4A5A68', // For hover/background states
+        dark: '#354B5B',
+        contrastText: '#E0E0E0', // Light contrast text
       },
       background: {
-        default: '#1A1D21', // Dark grey, slightly off-black
-        paper: '#23272B', // Slightly lighter for cards/paper
-        dark: '#1A1D21', // Ensuring 'dark' is consistent if used by components
+        default: '#22272B', // Dark charcoal, not pitch black
+        paper: '#2C3136', // Slightly lighter charcoal for cards and elevated surfaces
       },
       text: {
-        primary: '#E9ECEF', // Off-white
-        secondary: '#ADB5BD', // Light grey
-        disabled: '#6C757D', // Medium grey
+        primary: '#E4E7EB', // Off-white for primary text, good readability
+        secondary: '#98A2B3', // Lighter grey for secondary text
+        disabled: '#667085',
       },
-      // Status colors can be inherited from DefaultColors.tsx (baseDarkTheme)
-      // or overridden here for specific dark theme adjustments.
-      // Example: ensure good contrast
-      // success: { main: '#28a745', light: '#1c3d23', dark: '#1e7e34', contrastText: '#ffffff' },
-      // error: { main: '#e04b59', light: '#442529', dark: '#c82333', contrastText: '#ffffff' },
-      // warning: { main: '#ffca2c', light: '#4d3a2a', dark: '#d9a406', contrastText: '#000000' },
-      // info: { main: '#17a2b8', light: '#1a3a40', dark: '#117a8b', contrastText: '#ffffff' },
-      divider: '#495057', // Darker grey divider
+      divider: '#475467', // A visible but not too stark divider
+      // Status colors (success, error, warning, info) will be inherited from baseDarkTheme
+      // unless you specifically override them here for this dark theme variant.
     },
   },
   // Remove other dark themes (AQUA_THEME, PURPLE_THEME, etc.) if you only want this one.
