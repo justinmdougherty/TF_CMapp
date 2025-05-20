@@ -165,11 +165,7 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
 
 You're asking a very important architectural question! It's always good to think about reusability.
 
-Regarding the reusability of PRBatchTrackingComponent.tsx:
-
-Yes, a significant portion of it is highly reusable once you make the project-specific parts (primarily the steps) dynamic.
-
-Here's a breakdown:
+Reusability of PRBatchTrackingComponent.tsx for other projects:
 
 Highly Reusable Parts:
 
