@@ -53,7 +53,7 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
 
 ## Project Progress & TODO List
 
-**Last Updated:** May 20, 2025
+**Last Updated:** May 22, 2025
 
 ### Completed ✅
 
@@ -77,7 +77,8 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
 * [x] **Layout Adjustments:**
   * [x] Removed default image/graphic from the `Breadcrumb` component.
   * [x] Resolved double breadcrumb issue on Project Detail page.
-  * [x] Adjusted layout of `PRBatchTrackingComponent` for better height (`70vh` for table).
+  * [x] Adjusted layout of batch tracking components for better width utilization.
+  * [x] Implemented responsive width expansion for PR projects using breakpoint-specific widths.
 * [x] **Sidebar Profile:**
   * [x] Integrated `certificateService.ts` and `node-forge`.
   * [x] Updated `SidebarProfile/Profile.tsx` for dynamic user name and initials avatar.
@@ -93,27 +94,39 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
   * [x] Created `src/services/projectService.ts` with mock API functions.
   * [x] Created `src/hooks/useProjects.ts` with `useGetProjects` and `useGetProjectById`.
   * [x] Refactored `ProjectsDashboardPage.tsx` and `ProjectDetailPage.tsx` to use these hooks.
-* [x] **PR Project Specific UI (Mock & Enhancements):**
-  * [x] Created `PRBatchTrackingComponent.tsx` in `src/views/project-detail/`.
-    * [x] Embedded PR-specific step definitions and mock batch data.
-    * [x] Implemented UI for table of units (with select all/individual selection) and step update panel.
-    * [x] Implemented local state logic for updating step statuses for selected units within the mock.
-    * [x] Added Tabs for 'In Progress', 'Completed', and 'Shipped' units.
-    * [x] Added 'Add New Units' button and modal functionality (with mock S/N generation).
-    * [x] Integrated user name from `certificateService` for "Completed By" field.
-    * [x] Added batch start and target completion date fields to modal and display.
-  * [x] Conditionally rendered `PRBatchTrackingComponent` within `ProjectDetailPage.tsx` when `project.name === 'PR'`.
-  * [x] Resolved TypeScript prop passing errors.
+* [x] **Generic Batch Tracking System:**
+  * [x] **Refactored PRBatchTrackingComponent into Generic BatchTrackingComponent:**
+    * [x] Created configuration-driven system supporting multiple project types.
+    * [x] Implemented `PROJECT_TYPE_CONFIGS` with support for PR and ASSEMBLY project types.
+    * [x] Built flexible table column system with tab-specific visibility.
+    * [x] Added configurable step definitions per project type.
+    * [x] Implemented dynamic serial number prefix handling.
+    * [x] Created extensible interface system for adding new project types.
+  * [x] **Enhanced UI Features:**
+    * [x] Added unit detail modal with individual step progress tracking.
+    * [x] Implemented modal navigation (Previous/Next) for efficient unit review.
+    * [x] Added color-coded status indicators in detail view.
+    * [x] Included "Next Steps Required" section for incomplete units.
+    * [x] Fixed selection preservation when applying status updates.
+    * [x] Enhanced click handling to distinguish between row clicks and checkbox clicks.
+  * [x] **Table Enhancements:**
+    * [x] Increased component size and improved text readability.
+    * [x] Optimized grid layout (9/12 for table, 3/12 for controls on In Progress tab).
+    * [x] Added responsive column widths using percentages.
+    * [x] Implemented proper overflow handling without horizontal scroll bars.
+  * [x] **Integration Updates:**
+    * [x] Updated `ProjectDetailPage.tsx` to use generic `BatchTrackingComponent`.
+    * [x] Added project type detection based on `project.name`.
+    * [x] Implemented conditional rendering for supported batch tracking types.
+    * [x] Applied responsive width expansion to both project details and batch tracking sections.
 
 ### In Progress 🚧
 
 * **Styling & Theming (Light Theme Contrast):**
   * [ ] Continue iterating on light theme colors to improve contrast between `background.default` and `background.paper` to ensure UI elements are clearly distinguishable.
-* **Layout Adjustments for `PRBatchTrackingComponent`:**
-  * [ ] Make the component wider to utilize more screen space effectively if still needed.
 * **App Integration (from Full Template):**
   * [ ] **Tickets App:** Continue resolving any remaining dependencies or issues. Verify full functionality.
-  * [ ] **Notes App:** Integrate from the full template. (Consider how batch-level notes from `PRBatchTrackingComponent` will integrate here).
+  * [ ] **Notes App:** Integrate from the full template. (Consider how batch-level notes from batch tracking will integrate here).
   * [ ] **Calendar App:** Integrate from the full template. (Plan to display batch start/target completion dates).
 * **State Management (Client-Side - Zustand):**
   * [ ] Install Zustand.
@@ -123,20 +136,18 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
 ### To Do 📝
 
 * **Database Design & Backend Integration for Dynamic Projects & Inventory:**
-  * [ ] **Design and Implement Core Tables (MSSQL):**
-    * [ ] `Projects`: To store project master data (ProjectID PK, ProjectName, etc.).
-    * [ ] `StepDefinitions`: To store user-definable steps for each project (StepDefinitionID PK, ProjectID FK, StepName, StepOrder).
-    * [ ] `InventoryItems`: Master list of all inventory parts (InventoryItemID PK, ItemName, CurrentStock, UnitOfMeasure, PartNumber).
-    * [ ] `StepInventoryConsumption`: Links steps to inventory items they consume (ConsumptionID PK, StepDefinitionID FK, InventoryItemID FK, QuantityConsumed).
-    * [ ] `ProductionBatches`: Tracks batches of units (ProductionBatchID PK, ProjectID FK, BatchName, BatchStartDate, BatchTargetCompletionDate, BatchNotes).
-    * [ ] `BatchUnits`: Individual units within a batch (BatchUnitID PK, ProductionBatchID FK, UnitSerialNumber, PCBSerialNumber, IsShipped, ShippedDate, DateFullyCompleted).
-    * [ ] `UnitStepProgress`: Tracks status of each step for each unit (UnitStepProgressID PK, BatchUnitID FK, StepDefinitionID FK, Status, CompletedDate, CompletedByUserID).
-  * [ ] **Develop API Endpoints:** Create Node.js/Express API endpoints for CRUD operations on these new tables.
+  * [ ] **Design and Implement Core Tables (MSSQL):** See [Database Schema](#database-schema) section below.
+  * [ ] **Develop API Endpoints:** Create Node.js/Express API endpoints for CRUD operations on the new database tables.
   * [ ] **Refactor Frontend Services (`*Service.ts` files):** Update to make actual `fetch` calls to the new backend API endpoints.
-  * [ ] **Refactor `PRBatchTrackingComponent` (and generalize it):**
+  * [ ] **Connect Generic Batch Tracking to Database:**
     * [ ] Fetch project-specific steps based on `ProjectID`.
     * [ ] Fetch and update batch data, unit data, and step progress via API calls.
     * [ ] Implement logic for automatic inventory decrementation on step completion (backend process triggered by frontend action).
+* **Extend Generic Batch Tracking System:**
+  * [ ] Add more project type configurations to `PROJECT_TYPE_CONFIGS`.
+  * [ ] Implement custom field support for different project types.
+  * [ ] Add project type management UI for administrators.
+  * [ ] Implement step template system for reusable step definitions.
 * **Core Features - UI Shells & TanStack Query Integration (continued):**
   * [ ] **User Interface for Project & Step Management:**
     * [ ] UI for users to create/edit projects.
@@ -144,7 +155,7 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
     * [ ] UI for users to associate inventory items and consumption quantities with specific steps.
   * [ ] **Inventory Page (Full Implementation):**
     * [ ] Design layout (table/grid) for `InventoryItems`.
-    * [ ] Create `src/types/inventory.ts` for `InventoryItem` interface (if not already covered by backend types).
+    * [ ] Create `src/types/inventory.ts` for `InventoryItem` interface.
     * [ ] Create `src/services/inventoryService.ts` and `src/hooks/useInventory.ts` (for API calls).
     * [ ] Implement UI with TanStack Query for data fetching, display, and updates.
     * [ ] Create `AddInventoryItemForm.tsx` (integrate with `useMutation`).
@@ -159,7 +170,7 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
   * [ ] Connect forms to these mutations.
   * [ ] Implement optimistic updates or query invalidation strategies.
 * **Batch Notes Integration:**
-  * [ ] Design UI for viewing/editing batch-level notes (e.g., in `PRBatchTrackingComponent` or linked `Notes` app component).
+  * [ ] Design UI for viewing/editing batch-level notes (e.g., in batch tracking component or linked `Notes` app component).
   * [ ] Ensure `ProductionBatches` table and API support saving/retrieving these notes.
 * **Calendar Integration:**
   * [ ] Display `BatchStartDate` and `BatchTargetCompletionDate` from `ProductionBatches` on the Calendar app.
@@ -180,268 +191,402 @@ This project was bootstrapped from the "Modernize - React and Next.js Admin Dash
   * [ ] **Comprehensive CM Documentation:** Document all CM processes and configurations.
 * **Local Dev Certificate Issue (Low Priority / Later).**
 
+## Generic Batch Tracking System Architecture
 
-Reusability of PRBatchTrackingComponent.tsx for other projects:
+### Overview
 
-Highly Reusable Parts:
+The batch tracking system has been designed as a highly configurable, reusable component that can support multiple project types with different workflows, steps, and requirements.
 
-The overall UI structure:
-Two-panel layout (units table on one side, action panel on the other).
-The MUI Table structure for displaying units (Unit S/N, PCB S/N, Last Step, Date).
-The checkbox selection logic for units (select all, select individual).
-The Tabs for "In Progress" / "Completed" filtering.
-The "Add Units" button and modal (the modal UI and basic quantity/SN inputs).
-The general concept of an action panel with a dropdown for steps and a dropdown for statuses.
-The "Apply to Selected" button logic.
-The local state management for:
-selectedUnits.
-currentStepIdToUpdate.
-currentStatusToApply.
-activeTab.
-Modal visibility and form state for adding units.
-Helper functions like isUnitComplete (if the definition of "complete" is consistent) and getUnitLastCompletedStepInfo (though it would operate on the dynamic steps).
-Parts That Need to Become Dynamic (Props or Fetched Data):
+### Key Components
 
-PR_PROJECT_STEPS: This is currently hardcoded. In a reusable component, this would need to be passed in as a prop, e.g., steps: ProductionStep[]. Your component would then use this steps prop to populate the "Step to Update" dropdown and for any logic that refers to step names or order.
-initialMockPRBatch (and batchData state): The actual batch data (units, their current step statuses) would be fetched from your API based on a projectId and/or batchId passed as props. TanStack Query would handle this fetching. The component would then display the fetched data.
-createInitialPRStepStatuses and createNewPRUnits: These functions currently use the hardcoded PR_PROJECT_STEPS. When steps is a prop, these functions would need to use that prop to initialize new units correctly for the specific project type's steps. The S/N generation in createNewPRUnits might also need to be more flexible or even server-driven.
-TypeScript Interfaces (PRProductionStep, PRProductionUnit, etc.): If the core structure of a "unit" and its "step status" is the same across different project types (even if the actual steps are different), you could use more generic interface names (e.g., ProductionStep, UnitStepStatus, ProductionUnit). If different project types have vastly different data structures for their units or how steps are tracked, you might need different components or a more complex generic component with conditional rendering.
-How to Make it Reusable:
+#### 1. **BatchTrackingComponent.tsx**
 
-Refactor PRBatchTrackingComponent.tsx into a more generic BatchTrackingComponent.tsx.
-Props: This generic component would accept props like:
-projectId: string
-batchId: string
-productionSteps: ProductionStep[] (This would be fetched by the parent page or a higher-level hook based on the project type/ID and then passed down).
-initialBatchData?: ProductionBatch (Optional, if data is fetched by a parent).
-Data Fetching: Inside BatchTrackingComponent.tsx (or a custom hook it uses), you'd use projectId and batchId with TanStack Query to fetch the specific batch data and potentially the productionSteps if they aren't passed as a prop.
-Logic Adaptation: All internal logic that currently refers to PR_PROJECT_STEPS would be modified to use the productionSteps prop.
-In summary: The core UI and interaction patterns you've built are very solid and reusable. The main change will be to decouple the hardcoded "PR" specific steps and data, making the component driven by props and fetched data. This way, you could use the same BatchTrackingComponent for "Midnight Rain" by simply passing it the "Midnight Rain" steps and batch data.
+The main generic component that renders the batch tracking interface based on configuration.
 
+**Props:**
+* `projectId: string` - The ID of the project
+* `projectType: string` - Determines which configuration to load
 
-Database Schema for Production Management & Inventory Tracking
+#### 2. **PROJECT_TYPE_CONFIGS**
+
+Configuration object that defines how each project type should behave:
+
+```typescript
+const PROJECT_TYPE_CONFIGS: Record<string, ProjectTypeConfig> = {
+  PR: { /* PR-specific configuration */ },
+  ASSEMBLY: { /* Assembly-specific configuration */ },
+  // Easy to add more project types
+}
+```
+
+#### 3. **Configuration Structure**
+
+Each project type configuration includes:
+* **Steps**: Array of production steps with order and descriptions
+* **Table Columns**: Dynamic column definitions with tab-specific visibility
+* **Unit Fields**: Form fields for creating new units
+* **Serial Number Prefixes**: Automatic S/N generation patterns
+
+### Highly Reusable Parts
+
+✅ **UI Structure:**
+* Two-panel layout (units table + action panel)
+* MUI Table structure for displaying units
+* Checkbox selection logic (select all, individual selection)
+* Tabs for "In Progress" / "Completed" / "Shipped" filtering
+* "Add Units" modal with form inputs
+* Step update panel with dropdowns and apply functionality
+
+✅ **State Management:**
+* `selectedUnits` tracking
+* `currentStepIdToUpdate` and `currentStatusToApply`
+* `activeTab` management
+* Modal visibility and form state
+* Selection preservation during status updates
+
+✅ **Helper Functions:**
+* `isUnitComplete()` - Determines if all steps are finished
+* `getUnitLastCompletedStepInfo()` - Finds most recent completed step
+* Unit detail modal with navigation capabilities
+
+### Dynamic Parts (Configuration-Driven)
+
+🔧 **Project-Specific Steps:**
+* Steps are now loaded from `config.steps` instead of hardcoded
+* Each project type can have different numbers and types of steps
+* Step names, descriptions, and order are fully configurable
+
+🔧 **Table Columns:**
+* Columns are defined in configuration with tab-specific visibility
+* Width, labels, and rendering logic can be customized per project type
+* Support for conditional columns (e.g., PCB S/N only for certain projects)
+
+🔧 **Serial Number Generation:**
+* Configurable prefixes per project type
+* Support for different S/N patterns (Unit S/N, PCB S/N, etc.)
+* Optional fields based on project requirements
+
+🔧 **Unit Data Structure:**
+* Base structure is consistent across project types
+* Additional custom fields supported via `[key: string]: any`
+* Flexible enough to handle project-specific requirements
+
+### Adding New Project Types
+
+To add a new project type (e.g., "TESTING"):
+
+1. **Add Configuration:**
+
+```typescript
+TESTING: {
+  projectType: 'TESTING',
+  displayName: 'Testing Project',
+  steps: [
+    { id: 'test_step_01', name: 'Initial calibration', order: 1 },
+    { id: 'test_step_02', name: 'Performance test', order: 2 },
+    // ... more steps
+  ],
+  tableColumns: [
+    { id: 'unitSN', label: 'Test Unit S/N', width: '20%', tabs: ['inProgress', 'completed'] },
+    // ... more columns
+  ],
+  unitFields: [
+    { key: 'unitSN', label: 'Test Unit S/N', type: 'text', required: true },
+  ],
+  snPrefix: { unit: 'TEST-' },
+}
+```
+
+2. **Update Supported Types:**
+
+```typescript
+const supportedBatchTypes = ['PR', 'ASSEMBLY', 'TESTING'];
+```
+
+3. **Database Integration:** Ensure your database schema supports the new project type and its specific requirements.
+
+### Current Project Type Examples
+
+#### **PR Project:**
+
+- 17 detailed manufacturing steps
+* Dual S/N tracking (Unit + PCB)
+* Complex assembly workflow with potting and wiring steps
+
+#### **Assembly Project:**
+
+- 6 streamlined assembly steps
+* Single S/N tracking
+* Simplified workflow for basic assembly operations
+
+## Database Schema
+
 This schema is designed to support user-defined projects, dynamic steps per project, and inventory consumption tied to those steps.
 
-MSSQL Data Type Notes:
+### Table Definitions
 
-INT IDENTITY(1,1): Auto-incrementing integer primary key.
+#### 1. Projects
 
-UNIQUEIDENTIFIER DEFAULT NEWID(): For globally unique IDs if preferred over integers.
-
-NVARCHAR(X): For string data (Unicode). NVARCHAR(MAX) for very long strings.
-
-DATETIME2(7): For date and time with high precision. DATE for date only.
-
-BIT: For boolean values (0 or 1).
-
-DECIMAL(P, S): For precise numeric values (e.g., DECIMAL(10, 2) for quantities with 2 decimal places).
-
-1. Projects
 Stores information about each project.
 
-TableName: Projects
+```sql
+CREATE TABLE Projects (
+    ProjectID INT IDENTITY(1,1) PRIMARY KEY,
+    ProjectName NVARCHAR(255) NOT NULL UNIQUE,
+    ProjectDescription NVARCHAR(MAX) NULL,
+    ProjectType NVARCHAR(50) NOT NULL, -- e.g., 'PR', 'ASSEMBLY', 'TESTING'
+    CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
+    CreatedByUserID NVARCHAR(255) NULL,
+    IsActive BIT NOT NULL DEFAULT 1
+);
+```
 
-Columns:
+#### 2. StepDefinitions
 
-ProjectID INT IDENTITY(1,1) PRIMARY KEY
-
-ProjectName NVARCHAR(255) NOT NULL UNIQUE
-
-ProjectDescription NVARCHAR(MAX) NULL
-
-CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE()
-
-CreatedByUserID NVARCHAR(255) NULL (FK to a Users table, if you have one, or store username)
-
-IsActive BIT NOT NULL DEFAULT 1
-
-2. StepDefinitions (or ProjectSteps)
 Defines the unique sequence of steps for each project.
 
-TableName: StepDefinitions
+```sql
+CREATE TABLE StepDefinitions (
+    StepDefinitionID INT IDENTITY(1,1) PRIMARY KEY,
+    ProjectID INT NOT NULL,
+    StepName NVARCHAR(255) NOT NULL,
+    StepOrder INT NOT NULL,
+    StepDescription NVARCHAR(MAX) NULL,
+    IsActive BIT NOT NULL DEFAULT 1,
+    
+    CONSTRAINT FK_StepDefinitions_Projects 
+        FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID),
+    CONSTRAINT UQ_StepDefinitions_ProjectOrder 
+        UNIQUE (ProjectID, StepOrder),
+    CONSTRAINT UQ_StepDefinitions_ProjectName 
+        UNIQUE (ProjectID, StepName)
+);
+```
 
-Columns:
+#### 3. InventoryItems
 
-StepDefinitionID INT IDENTITY(1,1) PRIMARY KEY
-
-ProjectID INT NOT NULL (FK referencing Projects.ProjectID)
-
-StepName NVARCHAR(255) NOT NULL
-
-StepOrder INT NOT NULL (Determines the sequence within a project)
-
-StepDescription NVARCHAR(MAX) NULL
-
-IsActive BIT NOT NULL DEFAULT 1
-
-Constraints:
-
-UNIQUE (ProjectID, StepOrder) - Ensures unique step order within a project.
-
-UNIQUE (ProjectID, StepName) - Ensures unique step names within a project.
-
-FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID)
-
-3. InventoryItems
 Master list of all inventory items.
 
-TableName: InventoryItems
+```sql
+CREATE TABLE InventoryItems (
+    InventoryItemID INT IDENTITY(1,1) PRIMARY KEY,
+    ItemName NVARCHAR(255) NOT NULL UNIQUE,
+    ItemDescription NVARCHAR(MAX) NULL,
+    PartNumber NVARCHAR(100) NULL UNIQUE,
+    CurrentStock DECIMAL(18, 4) NOT NULL DEFAULT 0,
+    UnitOfMeasure NVARCHAR(50) NOT NULL, -- e.g., 'pieces', 'cm', 'grams'
+    MinStockLevel DECIMAL(18, 4) NULL,
+    MaxStockLevel DECIMAL(18, 4) NULL,
+    SupplierID INT NULL,
+    LastUpdatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
+    IsActive BIT NOT NULL DEFAULT 1
+);
+```
 
-Columns:
+#### 4. StepInventoryConsumption
 
-InventoryItemID INT IDENTITY(1,1) PRIMARY KEY
+Links specific steps to the inventory items they consume.
 
-ItemName NVARCHAR(255) NOT NULL UNIQUE
+```sql
+CREATE TABLE StepInventoryConsumption (
+    ConsumptionID INT IDENTITY(1,1) PRIMARY KEY,
+    StepDefinitionID INT NOT NULL,
+    InventoryItemID INT NOT NULL,
+    QuantityConsumed DECIMAL(18, 4) NOT NULL,
+    
+    CONSTRAINT FK_StepInventory_StepDef 
+        FOREIGN KEY (StepDefinitionID) REFERENCES StepDefinitions(StepDefinitionID),
+    CONSTRAINT FK_StepInventory_Items 
+        FOREIGN KEY (InventoryItemID) REFERENCES InventoryItems(InventoryItemID),
+    CONSTRAINT UQ_StepInventory_StepItem 
+        UNIQUE (StepDefinitionID, InventoryItemID),
+    CONSTRAINT CK_StepInventory_Quantity 
+        CHECK (QuantityConsumed > 0)
+);
+```
 
-ItemDescription NVARCHAR(MAX) NULL
+#### 5. ProductionBatches
 
-PartNumber NVARCHAR(100) NULL UNIQUE
-
-CurrentStock DECIMAL(18, 4) NOT NULL DEFAULT 0
-
-UnitOfMeasure NVARCHAR(50) NOT NULL (e.g., 'pieces', 'cm', 'grams')
-
-MinStockLevel DECIMAL(18, 4) NULL
-
-MaxStockLevel DECIMAL(18, 4) NULL
-
-SupplierID INT NULL (FK to a Suppliers table, if applicable)
-
-LastUpdatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE()
-
-IsActive BIT NOT NULL DEFAULT 1
-
-4. StepInventoryConsumption
-Links specific steps to the inventory items they consume and the quantity.
-
-TableName: StepInventoryConsumption
-
-Columns:
-
-ConsumptionID INT IDENTITY(1,1) PRIMARY KEY
-
-StepDefinitionID INT NOT NULL (FK referencing StepDefinitions.StepDefinitionID)
-
-InventoryItemID INT NOT NULL (FK referencing InventoryItems.InventoryItemID)
-
-QuantityConsumed DECIMAL(18, 4) NOT NULL (Must be > 0)
-
-Constraints:
-
-UNIQUE (StepDefinitionID, InventoryItemID) - An item can only be listed once per step.
-
-FOREIGN KEY (StepDefinitionID) REFERENCES StepDefinitions(StepDefinitionID)
-
-FOREIGN KEY (InventoryItemID) REFERENCES InventoryItems(InventoryItemID)
-
-CHECK (QuantityConsumed > 0)
-
-5. ProductionBatches
 Tracks batches of units being produced for a specific project.
 
-TableName: ProductionBatches
+```sql
+CREATE TABLE ProductionBatches (
+    ProductionBatchID INT IDENTITY(1,1) PRIMARY KEY,
+    ProjectID INT NOT NULL,
+    BatchName NVARCHAR(255) NOT NULL,
+    QuantityPlanned INT NOT NULL,
+    BatchStartDate DATE NULL,
+    BatchTargetCompletionDate DATE NULL,
+    BatchActualCompletionDate DATE NULL,
+    BatchNotes NVARCHAR(MAX) NULL,
+    CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
+    CreatedByUserID NVARCHAR(255) NULL,
+    Status NVARCHAR(50) NOT NULL DEFAULT 'Pending', -- 'Pending', 'In Progress', 'Completed', 'Archived'
+    
+    CONSTRAINT FK_ProductionBatches_Projects 
+        FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID)
+);
+```
 
-Columns:
+#### 6. BatchUnits
 
-ProductionBatchID INT IDENTITY(1,1) PRIMARY KEY
-
-ProjectID INT NOT NULL (FK referencing Projects.ProjectID)
-
-BatchName NVARCHAR(255) NOT NULL (e.g., "PR Batch 001", "Midnight Rain - Run 3")
-
-QuantityPlanned INT NOT NULL
-
-BatchStartDate DATE NULL
-
-BatchTargetCompletionDate DATE NULL
-
-BatchActualCompletionDate DATE NULL
-
-BatchNotes NVARCHAR(MAX) NULL
-
-CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE()
-
-CreatedByUserID NVARCHAR(255) NULL
-
-Status NVARCHAR(50) NOT NULL DEFAULT 'Pending' (e.g., 'Pending', 'In Progress', 'Completed', 'Archived')
-
-Constraints:
-
-FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID)
-
-6. BatchUnits
 Stores individual units within a production batch.
 
-TableName: BatchUnits
+```sql
+CREATE TABLE BatchUnits (
+    BatchUnitID INT IDENTITY(1,1) PRIMARY KEY,
+    ProductionBatchID INT NOT NULL,
+    UnitSerialNumber NVARCHAR(100) NOT NULL,
+    PCBSerialNumber NVARCHAR(100) NULL,
+    DateAdded DATETIME2(7) NOT NULL DEFAULT GETDATE(),
+    IsShipped BIT NOT NULL DEFAULT 0,
+    ShippedDate DATETIME2(7) NULL,
+    DateFullyCompleted DATETIME2(7) NULL,
+    Status NVARCHAR(50) NOT NULL DEFAULT 'In Progress', -- 'In Progress', 'Completed', 'Shipped', 'Scrapped'
+    
+    CONSTRAINT FK_BatchUnits_Batches 
+        FOREIGN KEY (ProductionBatchID) REFERENCES ProductionBatches(ProductionBatchID),
+    CONSTRAINT UQ_BatchUnits_Serial 
+        UNIQUE (ProductionBatchID, UnitSerialNumber)
+);
+```
 
-Columns:
+#### 7. UnitStepProgress
 
-BatchUnitID INT IDENTITY(1,1) PRIMARY KEY
+Tracks the progress of each unit through its defined project steps.
 
-ProductionBatchID INT NOT NULL (FK referencing ProductionBatches.ProductionBatchID)
+```sql
+CREATE TABLE UnitStepProgress (
+    UnitStepProgressID INT IDENTITY(1,1) PRIMARY KEY,
+    BatchUnitID INT NOT NULL,
+    StepDefinitionID INT NOT NULL,
+    Status NVARCHAR(50) NOT NULL DEFAULT 'Not Started', -- 'Not Started', 'In Progress', 'Complete', 'N/A', 'Skipped'
+    CompletedDate DATETIME2(7) NULL,
+    CompletedByUserID NVARCHAR(255) NULL,
+    Notes NVARCHAR(MAX) NULL,
+    LastUpdatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
+    
+    CONSTRAINT FK_UnitStepProgress_Units 
+        FOREIGN KEY (BatchUnitID) REFERENCES BatchUnits(BatchUnitID),
+    CONSTRAINT FK_UnitStepProgress_Steps 
+        FOREIGN KEY (StepDefinitionID) REFERENCES StepDefinitions(StepDefinitionID),
+    CONSTRAINT UQ_UnitStepProgress_UnitStep 
+        UNIQUE (BatchUnitID, StepDefinitionID)
+);
+```
 
-UnitSerialNumber NVARCHAR(100) NOT NULL
+### Future Tables (Considerations)
 
-PCBSerialNumber NVARCHAR(100) NULL
+#### Users
 
-DateAdded DATETIME2(7) NOT NULL DEFAULT GETDATE()
+```sql
+CREATE TABLE Users (
+    UserID INT IDENTITY(1,1) PRIMARY KEY,
+    Username NVARCHAR(255) NOT NULL UNIQUE,
+    DisplayName NVARCHAR(255) NOT NULL,
+    Email NVARCHAR(255) NULL,
+    Role NVARCHAR(50) NOT NULL DEFAULT 'User',
+    IsActive BIT NOT NULL DEFAULT 1,
+    CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE()
+);
+```
 
-IsShipped BIT NOT NULL DEFAULT 0
+#### InventoryTransactions
 
-ShippedDate DATETIME2(7) NULL
+```sql
+CREATE TABLE InventoryTransactions (
+    TransactionID INT IDENTITY(1,1) PRIMARY KEY,
+    InventoryItemID INT NOT NULL,
+    TransactionType NVARCHAR(50) NOT NULL, -- 'Consume', 'Receive', 'Adjust', 'Transfer'
+    QuantityChange DECIMAL(18, 4) NOT NULL, -- Positive for additions, negative for consumption
+    TransactionDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
+    UserID INT NULL,
+    RelatedBatchUnitID INT NULL, -- For step-based consumption
+    RelatedStepDefinitionID INT NULL, -- For step-based consumption
+    Notes NVARCHAR(MAX) NULL,
+    
+    CONSTRAINT FK_InventoryTrans_Items 
+        FOREIGN KEY (InventoryItemID) REFERENCES InventoryItems(InventoryItemID),
+    CONSTRAINT FK_InventoryTrans_Users 
+        FOREIGN KEY (UserID) REFERENCES Users(UserID)
+);
+```
 
-DateFullyCompleted DATETIME2(7) NULL (Date all steps for this unit were completed)
+### Data Type Notes
 
-Status NVARCHAR(50) NOT NULL DEFAULT 'In Progress' (e.g., 'In Progress', 'Completed', 'Shipped', 'Scrapped')
+* **`INT IDENTITY(1,1)`**: Auto-incrementing integer primary key
+* **`UNIQUEIDENTIFIER DEFAULT NEWID()`**: For globally unique IDs if preferred
+* **`NVARCHAR(X)`**: Unicode string data. `NVARCHAR(MAX)` for very long strings
+* **`DATETIME2(7)`**: High precision date and time. `DATE` for date only
+* **`BIT`**: Boolean values (0 or 1)
+* **`DECIMAL(P, S)`**: Precise numeric values (e.g., `DECIMAL(18, 4)` for quantities with 4 decimal places)
 
-Constraints:
+### Indexing Recommendations
 
-UNIQUE (ProductionBatchID, UnitSerialNumber)
+```sql
+-- Performance indexes for frequently queried columns
+CREATE INDEX IX_StepDefinitions_ProjectID ON StepDefinitions(ProjectID);
+CREATE INDEX IX_ProductionBatches_ProjectID ON ProductionBatches(ProjectID);
+CREATE INDEX IX_BatchUnits_ProductionBatchID ON BatchUnits(ProductionBatchID);
+CREATE INDEX IX_UnitStepProgress_BatchUnitID ON UnitStepProgress(BatchUnitID);
+CREATE INDEX IX_UnitStepProgress_StepDefinitionID ON UnitStepProgress(StepDefinitionID);
+CREATE INDEX IX_InventoryTransactions_InventoryItemID ON InventoryTransactions(InventoryItemID);
+```
 
-FOREIGN KEY (ProductionBatchID) REFERENCES ProductionBatches(ProductionBatchID)
+## API Endpoints
 
-7. UnitStepProgress
-Tracks the progress of each unit through its defined project steps. This is where the actual tracking happens.
+### Projects API
 
-TableName: UnitStepProgress
+```
+GET    /api/projects                     # Get all projects
+GET    /api/projects/:id                 # Get project by ID
+POST   /api/projects                     # Create new project
+PUT    /api/projects/:id                 # Update project
+DELETE /api/projects/:id                 # Delete project
+GET    /api/projects/:id/steps           # Get steps for project
+POST   /api/projects/:id/steps           # Create step for project
+PUT    /api/projects/steps/:stepId       # Update step
+DELETE /api/projects/steps/:stepId       # Delete step
+```
 
-Columns:
+### Production Batches API
 
-UnitStepProgressID INT IDENTITY(1,1) PRIMARY KEY
+```
+GET    /api/batches                      # Get all batches
+GET    /api/batches/:id                  # Get batch by ID
+POST   /api/batches                      # Create new batch
+PUT    /api/batches/:id                  # Update batch
+DELETE /api/batches/:id                  # Delete batch
+GET    /api/batches/:id/units            # Get units in batch
+POST   /api/batches/:id/units            # Add units to batch
+PUT    /api/batches/units/:unitId        # Update unit
+DELETE /api/batches/units/:unitId        # Delete unit
+```
 
-BatchUnitID INT NOT NULL (FK referencing BatchUnits.BatchUnitID)
+### Unit Step Progress API
 
-StepDefinitionID INT NOT NULL (FK referencing StepDefinitions.StepDefinitionID)
+```
+GET    /api/units/:unitId/progress       # Get all step progress for unit
+PUT    /api/units/:unitId/steps/:stepId  # Update step status for unit
+POST   /api/units/bulk-update            # Bulk update step status for multiple units
+```
 
-Status NVARCHAR(50) NOT NULL DEFAULT 'Not Started' (e.g., 'Not Started', 'In Progress', 'Complete', 'N/A', 'Skipped')
+### Inventory API
 
-CompletedDate DATETIME2(7) NULL
+```
+GET    /api/inventory                    # Get all inventory items
+GET    /api/inventory/:id                # Get inventory item by ID
+POST   /api/inventory                    # Create new inventory item
+PUT    /api/inventory/:id                # Update inventory item
+DELETE /api/inventory/:id                # Delete inventory item
+GET    /api/inventory/:id/transactions   # Get transactions for item
+POST   /api/inventory/:id/adjust         # Adjust inventory levels
+```
 
-CompletedByUserID NVARCHAR(255) NULL (Stores the username or ID of the user who completed the step)
+### Authentication API
 
-Notes NVARCHAR(MAX) NULL (Step-specific notes, if needed in the future, though you mentioned batch-level for now)
-
-LastUpdatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE()
-
-Constraints:
-
-UNIQUE (BatchUnitID, StepDefinitionID) - Each step can only have one status entry per unit.
-
-FOREIGN KEY (BatchUnitID) REFERENCES BatchUnits(BatchUnitID)
-
-FOREIGN KEY (StepDefinitionID) REFERENCES StepDefinitions(StepDefinitionID)
-
-Potential Future Tables (Considerations):
-Users: For managing application users, roles, and permissions. CreatedByUserID and CompletedByUserID would then be FKs to this table.
-
-Suppliers: If you need to track inventory suppliers.
-
-InventoryTransactions: For a detailed audit log of all inventory movements (increment, decrement, adjustments) with timestamps, user, reason, etc. This is highly recommended for robust inventory tracking.
-
-Example: (TransactionID PK, InventoryItemID FK, TransactionType NVARCHAR(50), QuantityChange DECIMAL, TransactionDate, UserID FK, Notes)
-
-CalendarEvents / ProjectSchedules: To store the batch start/end dates for display on a calendar view.
-
-Example: (EventID PK, EventType ['BatchSchedule'], RelatedID [ProductionBatchID], StartDate, EndDate, Title)
-
-This schema provides a relational structure that should support your current and planned features. Remember to create appropriate indexes on foreign keys and frequently queried columns for performance.
+```
+GET    /api/auth/user                    # Get current user info
+POST   /api/auth/login                   # Login (if using form auth)
+POST   /api/auth/logout                  # Logout
+```

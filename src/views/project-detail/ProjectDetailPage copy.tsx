@@ -1,16 +1,16 @@
 // src/views/project-detail/ProjectDetailPage.tsx
 
-import { Typography, Box, CircularProgress, Paper, LinearProgress } from '@mui/material';
+import { Typography, Box, CircularProgress, Paper, LinearProgress } from '@mui/material'; // Added Paper
 import PageContainer from 'src/components/container/PageContainer';
 import Breadcrumb from 'src/layouts/full/shared/breadcrumb/Breadcrumb';
 import { useParams } from 'react-router';
-import { useGetProjectById } from 'src/hooks/useProjects';
+import { useGetProjectById } from 'src/hooks/useProjects'; // This fetches general project info
 
-// Import the new generic BatchTrackingComponent
-import BatchTrackingComponent from './BatchTrackingComponent';
+// Import your PRBatchTrackingComponent
+import PRBatchTrackingComponent from './PRBatchTrackingComponent';
 
 const ProjectDetailPage = () => {
-  const { projectId: currentProjectIdFromUrl } = useParams<{ projectId: string }>();
+  const { projectId: currentProjectIdFromUrl } = useParams<{ projectId: string }>(); // Renamed for clarity
   const { data: project, isLoading, isError, error } = useGetProjectById(currentProjectIdFromUrl);
 
   // Dynamic Breadcrumb construction
@@ -52,6 +52,7 @@ const ProjectDetailPage = () => {
 
   // Project Not Found State
   if (!project) {
+    // Adjust BCrumb for "Not Found" state as project.name is unavailable
     const notFoundBCrumb = [
       { to: '/', title: 'Home' },
       { to: '/dashboard', title: 'Projects Dashboard' },
@@ -68,13 +69,10 @@ const ProjectDetailPage = () => {
     );
   }
 
-  // --- Project Found - Display Details and Conditionally the Batch Tracker ---
+  // --- Project Found - Display Details and Conditionally the PR Batch Tracker ---
 
-  // Check if project has batch tracking capability
-  // This could be based on project.type, project.name, or a specific field like project.hasBatchTracking
-  const supportedBatchTypes = ['PR', 'ASSEMBLY']; // Add more types as needed
-  const projectType = project.name; // Assuming project name indicates type, could be project.type
-  const hasBatchTracking = supportedBatchTypes.includes(projectType.toUpperCase());
+  // Condition to show PR Batch Tracking UI if the project's name is "PR"
+  const isThePRProject = project.name === 'PR';
 
   return (
     <PageContainer
@@ -86,18 +84,20 @@ const ProjectDetailPage = () => {
       <Box
         mb={3}
         sx={{
-          width: hasBatchTracking
+          width: isThePRProject
             ? { xs: '100%', sm: '110%', md: '120%', lg: '130%', xl: '140%' }
-            : '100%',
-          maxWidth: hasBatchTracking ? 'none' : undefined,
-          mx: hasBatchTracking ? { xs: -1, sm: -3, md: -6, lg: -12, xl: -20 } : 0,
-          px: hasBatchTracking ? 2 : 0,
-          overflow: 'visible',
+            : '100%', // Apply expansion only for PR project
+          maxWidth: isThePRProject ? 'none' : undefined, // Remove max-width constraints for PR project
+          mx: isThePRProject ? { xs: -1, sm: -3, md: -6, lg: -12, xl: -20 } : 0, // Apply negative margins only for PR project
+          px: isThePRProject ? 2 : 0, // Add padding only for PR project
+          overflow: 'visible', // Ensure content isn't clipped
         }}
       >
         <Typography variant="h4" gutterBottom>
           {project.name}
         </Typography>
+        {/* Display some general project details - these come from projectService.ts mock */}
+        {/* <Typography variant="body1">ID: {project.id}</Typography> */}
 
         <Box sx={{ display: 'flex', alignItems: 'center', my: 1, maxWidth: '300px' }}>
           <Typography variant="body1" sx={{ mr: 2, minWidth: '80px' }}>
@@ -117,34 +117,33 @@ const ProjectDetailPage = () => {
         <Typography variant="body1">
           Due Date: {new Date(project.dueDate).toLocaleDateString()}
         </Typography>
+        {/* Add any other general details you want to show for ALL projects */}
       </Box>
 
-      {/* Conditionally render the Generic BatchTrackingComponent */}
-      {hasBatchTracking && (
+      {/* Conditionally render the PRBatchTrackingComponent with expanded width */}
+      {isThePRProject && (
         <Box
           mt={4}
           sx={{
-            width: { xs: '100%', sm: '110%', md: '120%', lg: '130%', xl: '140%' },
-            maxWidth: 'none',
-            mx: { xs: -1, sm: -3, md: -6, lg: -12, xl: -20 },
-            px: 2,
-            overflow: 'visible',
+            width: { xs: '100%', sm: '110%', md: '120%', lg: '130%', xl: '140%' }, // Responsive width scaling
+            maxWidth: 'none', // Remove any max-width constraints
+            mx: { xs: -1, sm: -3, md: -6, lg: -12, xl: -20 }, // Responsive negative margins
+            px: 2, // Add back some padding so content doesn't touch the edges
+            overflow: 'visible', // Ensure content isn't clipped
           }}
         >
-          {/* Generic BatchTrackingComponent configured by project type */}
-          <BatchTrackingComponent projectId={project.id} projectType={projectType} />
+          {/* PRBatchTrackingComponent is self-contained with its UI and mock data */}
+          <PRBatchTrackingComponent projectId={project.id} />
         </Box>
       )}
 
-      {/* Display message for projects without batch tracking */}
-      {!hasBatchTracking && (
+      {/* Optional: Display a message or different components if it's NOT the PR project */}
+      {!isThePRProject && (
         <Box mt={4}>
           <Paper sx={{ p: 2 }}>
             <Typography variant="body1">
-              This project ({project.name}) does not have batch tracking functionality enabled.
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Supported batch tracking types: {supportedBatchTypes.join(', ')}
+              This project ({project.name}) does not have a specific batch tracking view.
+              {/* You could render other project-specific details or components here */}
             </Typography>
           </Paper>
         </Box>

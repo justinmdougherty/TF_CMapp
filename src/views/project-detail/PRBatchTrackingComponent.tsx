@@ -193,6 +193,8 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
   const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>('Loading User...');
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isUnitDetailModalOpen, setIsUnitDetailModalOpen] = useState(false);
+  const [selectedUnitForDetail, setSelectedUnitForDetail] = useState<PRProductionUnit | null>(null);
   const [addUnitsForm, setAddUnitsForm] = useState({
     quantity: 1,
     startUnitSN: `PR-UNITSN-${String(initialMockPRBatch.units.length + 1).padStart(3, '0')}`,
@@ -248,14 +250,20 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
   }, [activeTab, inProgressUnits, completedUnits, shippedUnits]);
 
   useEffect(() => {
+    // Only auto-select all units when switching tabs, not when data changes
+    // This preserves user selection when applying status updates
     const newSelected: Record<string, boolean> = {};
     currentVisibleUnits.forEach((unit) => {
-      if (activeTab === 0 || activeTab === 1) {
+      // Preserve existing selection if the unit was already visible, otherwise auto-select for In Progress and Completed tabs
+      if (selectedUnits[unit.id] !== undefined) {
+        newSelected[unit.id] = selectedUnits[unit.id];
+      } else if (activeTab === 0 || activeTab === 1) {
+        // Only auto-select new units that weren't previously visible
         newSelected[unit.id] = true;
       }
     });
     setSelectedUnits(newSelected);
-  }, [activeTab, currentVisibleUnits]);
+  }, [activeTab, currentVisibleUnits.map(u => u.id).join(',')]); // Only trigger on tab change or unit list changes, not on unit data changes
 
   useEffect(() => {
     // Update form defaults when batchData or its length changes
@@ -374,6 +382,40 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
   };
   const handleCloseAddModal = () => setIsAddModalOpen(false);
 
+  const handleOpenUnitDetailModal = (unit: PRProductionUnit) => {
+    setSelectedUnitForDetail(unit);
+    setIsUnitDetailModalOpen(true);
+  };
+  const handleCloseUnitDetailModal = () => {
+    setIsUnitDetailModalOpen(false);
+    setSelectedUnitForDetail(null);
+  };
+
+  const handlePreviousUnit = () => {
+    if (!selectedUnitForDetail) return;
+    const currentIndex = currentVisibleUnits.findIndex(u => u.id === selectedUnitForDetail.id);
+    if (currentIndex > 0) {
+      setSelectedUnitForDetail(currentVisibleUnits[currentIndex - 1]);
+    }
+  };
+
+  const handleNextUnit = () => {
+    if (!selectedUnitForDetail) return;
+    const currentIndex = currentVisibleUnits.findIndex(u => u.id === selectedUnitForDetail.id);
+    if (currentIndex < currentVisibleUnits.length - 1) {
+      setSelectedUnitForDetail(currentVisibleUnits[currentIndex + 1]);
+    }
+  };
+
+  const getCurrentUnitPosition = () => {
+    if (!selectedUnitForDetail) return { current: 0, total: 0 };
+    const currentIndex = currentVisibleUnits.findIndex(u => u.id === selectedUnitForDetail.id);
+    return {
+      current: currentIndex + 1,
+      total: currentVisibleUnits.length
+    };
+  };
+
   const handleAddUnitsFormChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     setAddUnitsForm((prev) => ({
@@ -433,14 +475,15 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
   };
 
   return (
-    <Paper sx={{ p: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="h5">{batchData.batchName} Batch Tracking</Typography>
+    <Paper sx={{ p: 3, width: '100%' }}> {/* Optimized padding and ensured full width usage */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}> {/* Increased margin bottom */}
+        <Typography variant="h4">{batchData.batchName} Batch Tracking</Typography> {/* Changed from h5 to h4 */}
         <Tooltip title="Add New Units / Edit Batch Dates">
           <Button
             variant="contained"
-            startIcon={<IconPlus size="18" />}
+            startIcon={<IconPlus size="20" />} 
             onClick={handleOpenAddModal}
+            size="large" // Added large size
           >
             Add Units / Dates
           </Button>
@@ -451,15 +494,15 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
           display: 'flex',
           justifyContent: 'flex-start',
           alignItems: 'center',
-          mb: 2,
-          gap: 3,
+          mb: 3, // Increased margin bottom
+          gap: 4, // Increased gap
           flexWrap: 'wrap',
         }}
       >
-        <Typography variant="body2" component="span">
+        <Typography variant="body1" component="span"> {/* Changed from body2 to body1 */}
           Batch Start: <strong>{formatDateForDisplay(batchData.batchStartDate)}</strong>
         </Typography>
-        <Typography variant="body2" component="span">
+        <Typography variant="body1" component="span"> {/* Changed from body2 to body1 */}
           Target Completion:{' '}
           <strong>{formatDateForDisplay(batchData.batchTargetCompletionDate)}</strong>
         </Typography>
@@ -476,6 +519,13 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
           onChange={handleTabChange}
           indicatorColor="primary"
           textColor="primary"
+          sx={{
+            '& .MuiTab-root': {
+              fontSize: '1rem', // Increased tab font size
+              minHeight: 56, // Increased tab height
+              padding: '12px 24px', // Increased padding
+            }
+          }}
         >
           <Tab label={`In Progress (${inProgressUnits.length})`} />
           <Tab label={`Completed (${completedUnits.length})`} />
@@ -483,23 +533,24 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
         </Tabs>
       </AppBar>
 
-      <Grid container spacing={3} sx={{ mt: 0 }}>
-        <Grid item xs={12} md={activeTab === 0 ? 7 : 12}>
-          <Typography variant="subtitle1" gutterBottom sx={{ mt: 1 }}>
+      <Grid container spacing={3} sx={{ mt: 1 }}> {/* Reduced spacing slightly for better fit */}
+        <Grid item xs={12} md={activeTab === 0 ? 9 : 12}> {/* Increased table area to 9/12 when sidebar is visible */}
+          <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 2 }}> {/* Changed from subtitle1 to h6, increased margins */}
             {activeTab === 0
               ? `In Progress Units (${totalUnitsInCurrentTab})`
               : activeTab === 1
               ? `Completed Units (${totalUnitsInCurrentTab})`
               : `Shipped Units (${totalUnitsInCurrentTab})`}
           </Typography>
-          <TableContainer sx={{ maxHeight: '70vh' }}>
-            <Table stickyHeader size="small">
+          <TableContainer sx={{ maxHeight: '70vh', width: '100%', overflowX: 'auto' }}> {/* Removed minWidth that was causing issues, added proper overflow handling */}
+            <Table stickyHeader sx={{ minWidth: 650 }}> {/* Added minWidth to table itself for proper column sizing */}
               <TableHead>
                 <TableRow>
                   {(activeTab === 0 || activeTab === 1) && (
-                    <TableCell padding="checkbox">
+                    <TableCell padding="checkbox" sx={{ fontSize: '0.95rem' }}> {/* Increased font size */}
                       <Checkbox
                         color="primary"
+                        size="medium" // Changed from default to medium
                         indeterminate={
                           numberOfSelectedUnitsInCurrentTab > 0 &&
                           numberOfSelectedUnitsInCurrentTab < totalUnitsInCurrentTab
@@ -513,14 +564,13 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
                       />
                     </TableCell>
                   )}
-                  {activeTab === 2 && <TableCell padding="none" sx={{ width: '48px' }} />}{' '}
-                  {/* Adjusted for alignment */}
-                  <TableCell>Unit S/N</TableCell>
-                  {activeTab === 0 && <TableCell>PCB S/N</TableCell>}
-                  {activeTab === 0 && <TableCell>Last Step Completed</TableCell>}
-                  {activeTab === 0 && <TableCell>Date</TableCell>}
-                  {activeTab === 0 && <TableCell>Completed By</TableCell>}
-                  {activeTab === 1 && <TableCell>Date Completed</TableCell>}
+                  {activeTab === 2 && <TableCell padding="none" sx={{ width: '56px' }} />}
+                  <TableCell sx={{ fontSize: '0.95rem', fontWeight: 600, width: '15%' }}>Unit S/N</TableCell> {/* Using percentages instead of fixed minWidth */}
+                  {activeTab === 0 && <TableCell sx={{ fontSize: '0.95rem', fontWeight: 600, width: '15%' }}>PCB S/N</TableCell>}
+                  {activeTab === 0 && <TableCell sx={{ fontSize: '0.95rem', fontWeight: 600, width: '35%' }}>Last Step Completed</TableCell>}
+                  {activeTab === 0 && <TableCell sx={{ fontSize: '0.95rem', fontWeight: 600, width: '12%' }}>Date</TableCell>}
+                  {activeTab === 0 && <TableCell sx={{ fontSize: '0.95rem', fontWeight: 600, width: '18%' }}>Completed By</TableCell>}
+                  {activeTab === 1 && <TableCell sx={{ fontSize: '0.95rem', fontWeight: 600, width: '20%' }}>Date Completed</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -531,18 +581,40 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
                       hover
                       key={unit.id}
                       selected={!!selectedUnits[unit.id]}
-                      onClick={() =>
-                        (activeTab === 0 || activeTab === 1) && handleUnitSelectionChange(unit.id)
-                      }
-                      sx={{ cursor: activeTab === 0 || activeTab === 1 ? 'pointer' : 'default' }}
+                      onClick={(e) => {
+                        // Check if the click was on a checkbox - if so, don't open the modal
+                        const target = e.target as HTMLElement;
+                        const isCheckboxClick = (target instanceof HTMLInputElement && target.type === 'checkbox') || 
+                                              target.closest('input[type="checkbox"]') ||
+                                              target.closest('.MuiCheckbox-root');
+                        
+                        if (!isCheckboxClick) {
+                          // If it's not a checkbox click, open the unit detail modal
+                          handleOpenUnitDetailModal(unit);
+                        } else if (activeTab === 0 || activeTab === 1) {
+                          // If it is a checkbox click, handle selection
+                          handleUnitSelectionChange(unit.id);
+                        }
+                      }}
+                      sx={{ 
+                        cursor: 'pointer', // Always show pointer cursor
+                        '& .MuiTableCell-root': {
+                          fontSize: '0.9rem', // Increased body text size
+                          padding: '16px', // Increased cell padding
+                        }
+                      }}
                     >
                       {(activeTab === 0 || activeTab === 1) && (
                         <TableCell padding="checkbox">
-                          <Checkbox color="primary" checked={!!selectedUnits[unit.id]} />
+                          <Checkbox 
+                            color="primary" 
+                            checked={!!selectedUnits[unit.id]} 
+                            size="medium" // Changed from default to medium
+                          />
                         </TableCell>
                       )}
                       {activeTab === 2 && <TableCell padding="none" />}
-                      <TableCell>{unit.unitSN}</TableCell>
+                      <TableCell sx={{ fontWeight: 500 }}>{unit.unitSN}</TableCell> {/* Made unit SN slightly bolder */}
                       {activeTab === 0 && <TableCell>{unit.pcbSN}</TableCell>}
                       {activeTab === 0 && lastStepInfo && (
                         <>
@@ -569,8 +641,9 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
               variant="contained"
               onClick={handleMarkAsShipped}
               disabled={numberOfSelectedUnitsInCurrentTab === 0}
-              sx={{ mt: 2 }}
-              startIcon={<IconTruckDelivery size="18" />}
+              sx={{ mt: 3, fontSize: '1rem' }} // Increased margin and font size
+              startIcon={<IconTruckDelivery size="20" />} // Increased icon size
+              size="large" // Added large size
             >
               Mark {numberOfSelectedUnitsInCurrentTab} Selected as Shipped
             </Button>
@@ -578,13 +651,13 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
         </Grid>
 
         {activeTab === 0 && (
-          <Grid item xs={12} md={5}>
-            <Box sx={{ pt: 1 }}>
-              <Typography variant="subtitle1" gutterBottom>
+          <Grid item xs={12} md={3}> {/* Reduced sidebar to 3/12 to maximize table space */}
+            <Box sx={{ pt: 2 }}> {/* Increased padding top */}
+              <Typography variant="h6" gutterBottom> {/* Changed from subtitle1 to h6 */}
                 Update Status for Selected
               </Typography>
-              <FormControl fullWidth sx={{ my: 2 }}>
-                <InputLabel id="pr-step-select-label">Step to Update</InputLabel>
+              <FormControl fullWidth sx={{ my: 3 }}> {/* Increased margin */}
+                <InputLabel id="pr-step-select-label" sx={{ fontSize: '1rem' }}>Step to Update</InputLabel> {/* Increased label font size */}
                 <Select<string>
                   labelId="pr-step-select-label"
                   value={currentStepIdToUpdate}
@@ -592,16 +665,18 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
                   onChange={(e: SelectChangeEvent<string>) =>
                     setCurrentStepIdToUpdate(e.target.value)
                   }
+                  size="medium" // Added size prop
+                  sx={{ fontSize: '0.95rem' }} // Increased select font size
                 >
                   {PR_PROJECT_STEPS.map((step) => (
-                    <MenuItem key={step.id} value={step.id}>
+                    <MenuItem key={step.id} value={step.id} sx={{ fontSize: '0.9rem' }}> {/* Increased menu item font size */}
                       {step.order}. {step.name}
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
-              <FormControl fullWidth sx={{ mb: 2 }}>
-                <InputLabel id="pr-status-select-label">New Status</InputLabel>
+              <FormControl fullWidth sx={{ mb: 3 }}> {/* Increased margin */}
+                <InputLabel id="pr-status-select-label" sx={{ fontSize: '1rem' }}>New Status</InputLabel> {/* Increased label font size */}
                 <Select<PRStepStatusType>
                   labelId="pr-status-select-label"
                   value={currentStatusToApply}
@@ -609,10 +684,12 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
                   onChange={(e: SelectChangeEvent<PRStepStatusType>) =>
                     setCurrentStatusToApply(e.target.value as PRStepStatusType)
                   }
+                  size="medium" // Added size prop
+                  sx={{ fontSize: '0.95rem' }} // Increased select font size
                 >
                   {(['Not Started', 'In Progress', 'Complete', 'N/A'] as PRStepStatusType[]).map(
                     (status) => (
-                      <MenuItem key={status} value={status}>
+                      <MenuItem key={status} value={status} sx={{ fontSize: '0.9rem' }}> {/* Increased menu item font size */}
                         {status}
                       </MenuItem>
                     ),
@@ -624,16 +701,17 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
                 onClick={handleApplyStatusToSelected}
                 disabled={numberOfSelectedUnitsInCurrentTab === 0}
                 fullWidth
-                sx={{ mb: 2 }}
+                sx={{ mb: 3, fontSize: '1rem', py: 1.5 }} // Increased margin, font size, and padding
+                size="large" // Added large size
               >
                 Apply to {numberOfSelectedUnitsInCurrentTab} Unit(s)
               </Button>
-              <Typography variant="caption" sx={{ mt: 1, mb: 1, display: 'block' }}>
+              <Typography variant="body1" sx={{ mt: 2, mb: 2, display: 'block', fontWeight: 500 }}> {/* Changed from caption, increased margins and weight */}
                 Preview - Current status of '
                 {PR_PROJECT_STEPS.find((s) => s.id === currentStepIdToUpdate)?.name}' for first 5
                 selected:
               </Typography>
-              <Box sx={{ maxHeight: 150, overflowY: 'auto' }}>
+              <Box sx={{ maxHeight: 180, overflowY: 'auto', p: 2, bgcolor: 'grey.50', borderRadius: 1 }}> {/* Increased height, added padding and background */}
                 {currentVisibleUnits
                   .filter((u) => selectedUnits[u.id])
                   .slice(0, 5)
@@ -644,16 +722,16 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
                     return (
                       <Typography
                         key={unit.id}
-                        variant="caption"
+                        variant="body2" // Changed from caption to body2
                         display="block"
-                        sx={{ fontSize: '0.75rem' }}
+                        sx={{ fontSize: '0.85rem', mb: 0.5 }} // Increased font size and added margin
                       >
                         {unit.unitSN}: {currentStepStatus}
                       </Typography>
                     );
                   })}
                 {numberOfSelectedUnitsInCurrentTab > 5 && (
-                  <Typography variant="caption" display="block" sx={{ fontSize: '0.75rem' }}>
+                  <Typography variant="body2" display="block" sx={{ fontSize: '0.85rem', fontStyle: 'italic' }}> {/* Changed from caption, increased font size */}
                     ...and {numberOfSelectedUnitsInCurrentTab - 5} more.
                   </Typography>
                 )}
@@ -663,12 +741,12 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
         )}
       </Grid>
 
-      <Dialog open={isAddModalOpen} onClose={handleCloseAddModal} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Units / Edit Batch Dates</DialogTitle>
-        <DialogContent>
+      <Dialog open={isAddModalOpen} onClose={handleCloseAddModal} maxWidth="md" fullWidth> {/* Changed maxWidth from sm to md */}
+        <DialogTitle sx={{ fontSize: '1.5rem', pb: 2 }}>Add New Units / Edit Batch Dates</DialogTitle> {/* Increased font size and padding */}
+        <DialogContent sx={{ pt: 2 }}> {/* Added padding top */}
           <TextField
             autoFocus
-            margin="dense"
+            margin="normal" // Changed from dense to normal
             name="quantity"
             label="Quantity to Add (0 to only update dates)"
             type="number"
@@ -677,10 +755,12 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
             value={addUnitsForm.quantity}
             onChange={handleAddUnitsFormChange}
             InputProps={{ inputProps: { min: 0 } }} // Allow 0
-            sx={{ mb: 2 }}
+            sx={{ mb: 3 }} // Increased margin
+            size="medium" // Added size prop
+            InputLabelProps={{ sx: { fontSize: '1rem' } }} // Increased label font size
           />
           <TextField
-            margin="dense"
+            margin="normal" // Changed from dense to normal
             name="startUnitSN"
             label="Starting Unit S/N (e.g., PR-UNITSN-006)"
             type="text"
@@ -689,21 +769,26 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
             value={addUnitsForm.startUnitSN}
             onChange={handleAddUnitsFormChange}
             disabled={addUnitsForm.quantity === 0}
-            sx={{ mb: 2 }}
+            sx={{ mb: 3 }} // Increased margin
+            size="medium" // Added size prop
+            InputLabelProps={{ sx: { fontSize: '1rem' } }} // Increased label font size
           />
           <TextField
-            margin="dense"
+            margin="normal" // Changed from dense to normal
             name="startPcbSN"
             label="Starting PCB S/N (e.g., PR-PCBSN-006)"
             type="text"
             fullWidth
             variant="outlined"
             value={addUnitsForm.startPcbSN}
+            onChange={handleAddUnitsFormChange}
             disabled={addUnitsForm.quantity === 0}
-            sx={{ mb: 2 }}
+            sx={{ mb: 3 }} // Increased margin
+            size="medium" // Added size prop
+            InputLabelProps={{ sx: { fontSize: '1rem' } }} // Increased label font size
           />
           <TextField
-            margin="dense"
+            margin="normal" // Changed from dense to normal
             name="batchStartDate"
             label="Batch Start Date"
             type="date"
@@ -711,11 +796,12 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
             variant="outlined"
             value={addUnitsForm.batchStartDate}
             onChange={handleAddUnitsFormChange}
-            InputLabelProps={{ shrink: true }}
-            sx={{ mb: 2 }}
+            InputLabelProps={{ shrink: true, sx: { fontSize: '1rem' } }} // Increased label font size
+            sx={{ mb: 3 }} // Increased margin
+            size="medium" // Added size prop
           />
           <TextField
-            margin="dense"
+            margin="normal" // Changed from dense to normal
             name="batchTargetCompletionDate"
             label="Batch Target Completion Date"
             type="date"
@@ -723,13 +809,192 @@ const PRBatchTrackingComponent: React.FC<PRBatchTrackingComponentProps> = ({ pro
             variant="outlined"
             value={addUnitsForm.batchTargetCompletionDate}
             onChange={handleAddUnitsFormChange}
-            InputLabelProps={{ shrink: true }}
+            InputLabelProps={{ shrink: true, sx: { fontSize: '1rem' } }} // Increased label font size
+            size="medium" // Added size prop
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseAddModal}>Cancel</Button>
-          <Button onClick={handleAddNewUnits} variant="contained">
+        <DialogActions sx={{ p: 3 }}> {/* Increased padding */}
+          <Button onClick={handleCloseAddModal} size="large" sx={{ fontSize: '1rem' }}>Cancel</Button> {/* Added size and font size */}
+          <Button onClick={handleAddNewUnits} variant="contained" size="large" sx={{ fontSize: '1rem' }}> {/* Added size and font size */}
             {addUnitsForm.quantity > 0 ? 'Add Units & Save Dates' : 'Save Dates'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Unit Detail Modal */}
+      <Dialog 
+        open={isUnitDetailModalOpen} 
+        onClose={handleCloseUnitDetailModal} 
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle sx={{ fontSize: '1.5rem', pb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            Unit Details: {selectedUnitForDetail?.unitSN}
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {getCurrentUnitPosition().current} of {getCurrentUnitPosition().total} units
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              onClick={handlePreviousUnit}
+              disabled={!selectedUnitForDetail || currentVisibleUnits.findIndex(u => u.id === selectedUnitForDetail.id) === 0}
+              size="small"
+            >
+              ← Previous
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={handleNextUnit}
+              disabled={!selectedUnitForDetail || currentVisibleUnits.findIndex(u => u.id === selectedUnitForDetail.id) === currentVisibleUnits.length - 1}
+              size="small"
+            >
+              Next →
+            </Button>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {selectedUnitForDetail && (
+            <Box>
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" gutterBottom>Unit Information</Typography>
+                <Typography variant="body1"><strong>Unit S/N:</strong> {selectedUnitForDetail.unitSN}</Typography>
+                <Typography variant="body1"><strong>PCB S/N:</strong> {selectedUnitForDetail.pcbSN}</Typography>
+                <Typography variant="body1">
+                  <strong>Overall Status:</strong> {isUnitComplete(selectedUnitForDetail) ? 'Complete' : 'In Progress'}
+                </Typography>
+                {selectedUnitForDetail.isShipped && (
+                  <Typography variant="body1" color="success.main">
+                    <strong>Shipped:</strong> {selectedUnitForDetail.shippedDate ? new Date(selectedUnitForDetail.shippedDate).toLocaleDateString() : 'Yes'}
+                  </Typography>
+                )}
+              </Box>
+
+              <Typography variant="h6" gutterBottom>Step Progress</Typography>
+              <TableContainer sx={{ maxHeight: '400px' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600, width: '10%' }}>Step</TableCell>
+                      <TableCell sx={{ fontWeight: 600, width: '50%' }}>Description</TableCell>
+                      <TableCell sx={{ fontWeight: 600, width: '15%' }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 600, width: '15%' }}>Completed Date</TableCell>
+                      <TableCell sx={{ fontWeight: 600, width: '10%' }}>Completed By</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {PR_PROJECT_STEPS.map((step) => {
+                      const stepStatus = selectedUnitForDetail.stepStatuses.find(ss => ss.stepId === step.id);
+                      const status = stepStatus?.status || 'Not Started';
+                      const completedDate = stepStatus?.completedDate ? new Date(stepStatus.completedDate).toLocaleDateString() : '—';
+                      const completedBy = stepStatus?.completedBy || '—';
+                      
+                      // Color coding for status
+                      const getStatusColor = (status: PRStepStatusType) => {
+                        switch (status) {
+                          case 'Complete': return 'success.main';
+                          case 'In Progress': return 'warning.main';
+                          case 'N/A': return 'grey.500';
+                          default: return 'text.secondary';
+                        }
+                      };
+
+                      const getStatusBgColor = (status: PRStepStatusType) => {
+                        switch (status) {
+                          case 'Complete': return 'success.light';
+                          case 'In Progress': return 'warning.light';
+                          case 'N/A': return 'grey.100';
+                          default: return 'transparent';
+                        }
+                      };
+
+                      return (
+                        <TableRow 
+                          key={step.id}
+                          sx={{ 
+                            backgroundColor: getStatusBgColor(status),
+                            '&:hover': { backgroundColor: 'action.hover' }
+                          }}
+                        >
+                          <TableCell sx={{ fontWeight: 500 }}>{step.order}</TableCell>
+                          <TableCell>{step.name}</TableCell>
+                          <TableCell>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                color: getStatusColor(status),
+                                fontWeight: 500 
+                              }}
+                            >
+                              {status}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{completedDate}</TableCell>
+                          <TableCell>{completedBy}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Show next steps for incomplete units */}
+              {!isUnitComplete(selectedUnitForDetail) && (
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
+                  <Typography variant="h6" gutterBottom color="info.dark">
+                    Next Steps Required
+                  </Typography>
+                  {PR_PROJECT_STEPS
+                    .filter(step => {
+                      const stepStatus = selectedUnitForDetail.stepStatuses.find(ss => ss.stepId === step.id);
+                      return stepStatus?.status === 'Not Started';
+                    })
+                    .slice(0, 3) // Show first 3 incomplete steps
+                    .map(step => (
+                      <Typography key={step.id} variant="body2" sx={{ mb: 0.5 }}>
+                        • Step {step.order}: {step.name}
+                      </Typography>
+                    ))}
+                  {PR_PROJECT_STEPS.filter(step => {
+                    const stepStatus = selectedUnitForDetail.stepStatuses.find(ss => ss.stepId === step.id);
+                    return stepStatus?.status === 'Not Started';
+                  }).length > 3 && (
+                    <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                      ...and {PR_PROJECT_STEPS.filter(step => {
+                        const stepStatus = selectedUnitForDetail.stepStatuses.find(ss => ss.stepId === step.id);
+                        return stepStatus?.status === 'Not Started';
+                      }).length - 3} more steps
+                    </Typography>
+                  )}
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3, display: 'flex', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              onClick={handlePreviousUnit}
+              disabled={!selectedUnitForDetail || currentVisibleUnits.findIndex(u => u.id === selectedUnitForDetail.id) === 0}
+              size="large"
+              sx={{ fontSize: '1rem' }}
+            >
+              ← Previous Unit
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={handleNextUnit}
+              disabled={!selectedUnitForDetail || currentVisibleUnits.findIndex(u => u.id === selectedUnitForDetail.id) === currentVisibleUnits.length - 1}
+              size="large"
+              sx={{ fontSize: '1rem' }}
+            >
+              Next Unit →
+            </Button>
+          </Box>
+          <Button onClick={handleCloseUnitDetailModal} variant="contained" size="large" sx={{ fontSize: '1rem' }}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>
