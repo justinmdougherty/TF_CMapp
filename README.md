@@ -319,274 +319,154 @@ const supportedBatchTypes = ['PR', 'ASSEMBLY', 'TESTING'];
 * Single S/N tracking
 * Simplified workflow for basic assembly operations
 
-## Database Schema
+Frontend Data Handling and Display Logic
+Here's a conceptual overview of how your frontend application (e.g., using React, Vue, Angular, or similar) would typically handle the data fetched from the database to display a dynamic table for a selected project, like "PR".
 
-This schema is designed to support user-defined projects, dynamic steps per project, and inventory consumption tied to those steps.
+This process uses the results from the queries we've discussed, particularly Query 3, Query 4, and Query 5 from the mssql_visualization_queries artifact.
 
-### Table Definitions
+Assumptions:
 
-#### 1. Projects
+The user has selected a project (e.g., "PR"). The project_id for "PR" is known.
 
-Stores information about each project.
+Your API/backend service can execute these SQL queries and return data, likely as JSON arrays of objects.
 
-```sql
-CREATE TABLE Projects (
-    ProjectID INT IDENTITY(1,1) PRIMARY KEY,
-    ProjectName NVARCHAR(255) NOT NULL UNIQUE,
-    ProjectDescription NVARCHAR(MAX) NULL,
-    ProjectType NVARCHAR(50) NOT NULL, -- e.g., 'PR', 'ASSEMBLY', 'TESTING'
-    CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
-    CreatedByUserID NVARCHAR(255) NULL,
-    IsActive BIT NOT NULL DEFAULT 1
-);
-```
+Step-by-Step Frontend Logic:
 
-#### 2. StepDefinitions
+Fetch Column Definitions (Headers):
 
-Defines the unique sequence of steps for each project.
+Action: The frontend makes an API call that executes a query similar to Query 3 (SELECT attribute_name, display_order, attribute_type, is_required FROM AttributeDefinitions WHERE project_id = @TargetProjectID ORDER BY display_order;).
 
-```sql
-CREATE TABLE StepDefinitions (
-    StepDefinitionID INT IDENTITY(1,1) PRIMARY KEY,
-    ProjectID INT NOT NULL,
-    StepName NVARCHAR(255) NOT NULL,
-    StepOrder INT NOT NULL,
-    StepDescription NVARCHAR(MAX) NULL,
-    IsActive BIT NOT NULL DEFAULT 1,
-    
-    CONSTRAINT FK_StepDefinitions_Projects 
-        FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID),
-    CONSTRAINT UQ_StepDefinitions_ProjectOrder 
-        UNIQUE (ProjectID, StepOrder),
-    CONSTRAINT UQ_StepDefinitions_ProjectName 
-        UNIQUE (ProjectID, StepName)
-);
-```
+Expected Data Format (JSON from API):
 
-#### 3. InventoryItems
+[
+  { "attribute_name": "Unit S/N", "display_order": 1, "attribute_type": "TEXT", "is_required": true },
+  { "attribute_name": "PCB S/N", "display_order": 2, "attribute_type": "TEXT", "is_required": true },
+  { "attribute_name": "Firmware Version", "display_order": 3, "attribute_type": "TEXT", "is_required": false },
+  { "attribute_name": "Calibration Date", "display_order": 4, "attribute_type": "DATE", "is_required": false }
+]
 
-Master list of all inventory items.
+Frontend Handling:
 
-```sql
-CREATE TABLE InventoryItems (
-    InventoryItemID INT IDENTITY(1,1) PRIMARY KEY,
-    ItemName NVARCHAR(255) NOT NULL UNIQUE,
-    ItemDescription NVARCHAR(MAX) NULL,
-    PartNumber NVARCHAR(100) NULL UNIQUE,
-    CurrentStock DECIMAL(18, 4) NOT NULL DEFAULT 0,
-    UnitOfMeasure NVARCHAR(50) NOT NULL, -- e.g., 'pieces', 'cm', 'grams'
-    MinStockLevel DECIMAL(18, 4) NULL,
-    MaxStockLevel DECIMAL(18, 4) NULL,
-    SupplierID INT NULL,
-    LastUpdatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
-    IsActive BIT NOT NULL DEFAULT 1
-);
-```
+Store this array. This array defines the columns for your table: their names, order, data type (for potential formatting or input validation), and if they are mandatory.
 
-#### 4. StepInventoryConsumption
+Use this to render the table headers (<thead><tr><th>...</th></tr></thead>).
 
-Links specific steps to the inventory items they consume.
+Fetch Tracked Items (Base Row Data):
 
-```sql
-CREATE TABLE StepInventoryConsumption (
-    ConsumptionID INT IDENTITY(1,1) PRIMARY KEY,
-    StepDefinitionID INT NOT NULL,
-    InventoryItemID INT NOT NULL,
-    QuantityConsumed DECIMAL(18, 4) NOT NULL,
-    
-    CONSTRAINT FK_StepInventory_StepDef 
-        FOREIGN KEY (StepDefinitionID) REFERENCES StepDefinitions(StepDefinitionID),
-    CONSTRAINT FK_StepInventory_Items 
-        FOREIGN KEY (InventoryItemID) REFERENCES InventoryItems(InventoryItemID),
-    CONSTRAINT UQ_StepInventory_StepItem 
-        UNIQUE (StepDefinitionID, InventoryItemID),
-    CONSTRAINT CK_StepInventory_Quantity 
-        CHECK (QuantityConsumed > 0)
-);
-```
+Action: The frontend makes an API call that executes a query similar to Query 4 (SELECT item_id, current_overall_status, is_shipped, ... FROM TrackedItems WHERE project_id = @TargetProjectID;).
 
-#### 5. ProductionBatches
+Expected Data Format (JSON from API):
 
-Tracks batches of units being produced for a specific project.
+[
+  { "item_id": 1, "current_overall_status": "In Progress", "is_shipped": false, "item_notes": "Note for item 1" /*...other fixed fields */ },
+  { "item_id": 2, "current_overall_status": "Pending", "is_shipped": false, "item_notes": null /* ... */ },
+  { "item_id": 3, "current_overall_status": "Completed", "is_shipped": false, "item_notes": "Ready" /* ...*/ }
+]
 
-```sql
-CREATE TABLE ProductionBatches (
-    ProductionBatchID INT IDENTITY(1,1) PRIMARY KEY,
-    ProjectID INT NOT NULL,
-    BatchName NVARCHAR(255) NOT NULL,
-    QuantityPlanned INT NOT NULL,
-    BatchStartDate DATE NULL,
-    BatchTargetCompletionDate DATE NULL,
-    BatchActualCompletionDate DATE NULL,
-    BatchNotes NVARCHAR(MAX) NULL,
-    CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
-    CreatedByUserID NVARCHAR(255) NULL,
-    Status NVARCHAR(50) NOT NULL DEFAULT 'Pending', -- 'Pending', 'In Progress', 'Completed', 'Archived'
-    
-    CONSTRAINT FK_ProductionBatches_Projects 
-        FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID)
-);
-```
+Frontend Handling:
 
-#### 6. BatchUnits
+Store this array. Each object represents a row in your table, containing the fixed information about each tracked unit.
 
-Stores individual units within a production batch.
+Fetch All Attribute Values for these Items (EAV Data):
 
-```sql
-CREATE TABLE BatchUnits (
-    BatchUnitID INT IDENTITY(1,1) PRIMARY KEY,
-    ProductionBatchID INT NOT NULL,
-    UnitSerialNumber NVARCHAR(100) NOT NULL,
-    PCBSerialNumber NVARCHAR(100) NULL,
-    DateAdded DATETIME2(7) NOT NULL DEFAULT GETDATE(),
-    IsShipped BIT NOT NULL DEFAULT 0,
-    ShippedDate DATETIME2(7) NULL,
-    DateFullyCompleted DATETIME2(7) NULL,
-    Status NVARCHAR(50) NOT NULL DEFAULT 'In Progress', -- 'In Progress', 'Completed', 'Shipped', 'Scrapped'
-    
-    CONSTRAINT FK_BatchUnits_Batches 
-        FOREIGN KEY (ProductionBatchID) REFERENCES ProductionBatches(ProductionBatchID),
-    CONSTRAINT UQ_BatchUnits_Serial 
-        UNIQUE (ProductionBatchID, UnitSerialNumber)
-);
-```
+Action: The frontend makes an API call that executes a query similar to Query 5 (SELECT ti.item_id, ad.attribute_name, iav.attribute_value FROM TrackedItems ti JOIN ItemAttributeValues iav ... WHERE ti.project_id = @TargetProjectID;).
 
-#### 7. UnitStepProgress
+Expected Data Format (JSON from API - "unpivoted"):
 
-Tracks the progress of each unit through its defined project steps.
+[
+  { "item_id": 1, "attribute_name": "Unit S/N", "attribute_value": "PR-U0001" },
+  { "item_id": 1, "attribute_name": "PCB S/N", "attribute_value": "PR-P0001A" },
+  { "item_id": 1, "attribute_name": "Firmware Version", "attribute_value": "v1.0.2" },
+  { "item_id": 1, "attribute_name": "Calibration Date", "attribute_value": "2025-06-01" },
+  { "item_id": 2, "attribute_name": "Unit S/N", "attribute_value": "PR-U0002" },
+  { "item_id": 2, "attribute_name": "PCB S/N", "attribute_value": "PR-P0002B" },
+  // Note: No Firmware or Cal Date for item_id 2 in this example data
+  { "item_id": 3, "attribute_name": "Unit S/N", "attribute_value": "PR-U0003" },
+  { "item_id": 3, "attribute_name": "PCB S/N", "attribute_value": "PR-P0003C" },
+  { "item_id": 3, "attribute_name": "Firmware Version", "attribute_value": "v1.1.0" }
+]
 
-```sql
-CREATE TABLE UnitStepProgress (
-    UnitStepProgressID INT IDENTITY(1,1) PRIMARY KEY,
-    BatchUnitID INT NOT NULL,
-    StepDefinitionID INT NOT NULL,
-    Status NVARCHAR(50) NOT NULL DEFAULT 'Not Started', -- 'Not Started', 'In Progress', 'Complete', 'N/A', 'Skipped'
-    CompletedDate DATETIME2(7) NULL,
-    CompletedByUserID NVARCHAR(255) NULL,
-    Notes NVARCHAR(MAX) NULL,
-    LastUpdatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
-    
-    CONSTRAINT FK_UnitStepProgress_Units 
-        FOREIGN KEY (BatchUnitID) REFERENCES BatchUnits(BatchUnitID),
-    CONSTRAINT FK_UnitStepProgress_Steps 
-        FOREIGN KEY (StepDefinitionID) REFERENCES StepDefinitions(StepDefinitionID),
-    CONSTRAINT UQ_UnitStepProgress_UnitStep 
-        UNIQUE (BatchUnitID, StepDefinitionID)
-);
-```
+Transform/Merge Data for Display (Pivoting in Frontend Logic):
 
-### Future Tables (Considerations)
+Action: This is where the frontend combines the data from steps 1, 2, and 3. For each TrackedItem from step 2, it needs to create a single object that includes its fixed fields and its dynamic attributes as key-value pairs.
 
-#### Users
+Algorithm (Conceptual):
 
-```sql
-CREATE TABLE Users (
-    UserID INT IDENTITY(1,1) PRIMARY KEY,
-    Username NVARCHAR(255) NOT NULL UNIQUE,
-    DisplayName NVARCHAR(255) NOT NULL,
-    Email NVARCHAR(255) NULL,
-    Role NVARCHAR(50) NOT NULL DEFAULT 'User',
-    IsActive BIT NOT NULL DEFAULT 1,
-    CreatedDate DATETIME2(7) NOT NULL DEFAULT GETDATE()
-);
-```
+// fetchedColumnDefinitions from Step 1
+// fetchedTrackedItems from Step 2
+// fetchedAttributeValues (EAV data) from Step 3
 
-#### InventoryTransactions
+const displayableTableData = fetchedTrackedItems.map(item => {
+  // Start with the fixed fields of the item
+  let rowData = { ...item }; // e.g., { item_id: 1, current_overall_status: "In Progress", ... }
 
-```sql
-CREATE TABLE InventoryTransactions (
-    TransactionID INT IDENTITY(1,1) PRIMARY KEY,
-    InventoryItemID INT NOT NULL,
-    TransactionType NVARCHAR(50) NOT NULL, -- 'Consume', 'Receive', 'Adjust', 'Transfer'
-    QuantityChange DECIMAL(18, 4) NOT NULL, -- Positive for additions, negative for consumption
-    TransactionDate DATETIME2(7) NOT NULL DEFAULT GETDATE(),
-    UserID INT NULL,
-    RelatedBatchUnitID INT NULL, -- For step-based consumption
-    RelatedStepDefinitionID INT NULL, -- For step-based consumption
-    Notes NVARCHAR(MAX) NULL,
-    
-    CONSTRAINT FK_InventoryTrans_Items 
-        FOREIGN KEY (InventoryItemID) REFERENCES InventoryItems(InventoryItemID),
-    CONSTRAINT FK_InventoryTrans_Users 
-        FOREIGN KEY (UserID) REFERENCES Users(UserID)
-);
-```
+  // Find all attribute values for the current item_id from the EAV data
+  const itemSpecificAttributes = fetchedAttributeValues.filter(
+    attrVal => attrVal.item_id === item.item_id
+  );
 
-### Data Type Notes
+  // Populate the dynamic columns
+  // Use the attribute_name from fetchedColumnDefinitions as the key
+  fetchedColumnDefinitions.forEach(colDef => {
+    const attribute = itemSpecificAttributes.find(
+      attr => attr.attribute_name === colDef.attribute_name
+    );
+    // Use the actual attribute_name as the key in the rowData object
+    rowData[colDef.attribute_name] = attribute ? attribute.attribute_value : null; // Or undefined, or ""
+  });
 
-* **`INT IDENTITY(1,1)`**: Auto-incrementing integer primary key
-* **`UNIQUEIDENTIFIER DEFAULT NEWID()`**: For globally unique IDs if preferred
-* **`NVARCHAR(X)`**: Unicode string data. `NVARCHAR(MAX)` for very long strings
-* **`DATETIME2(7)`**: High precision date and time. `DATE` for date only
-* **`BIT`**: Boolean values (0 or 1)
-* **`DECIMAL(P, S)`**: Precise numeric values (e.g., `DECIMAL(18, 4)` for quantities with 4 decimal places)
+  return rowData;
+});
 
-### Indexing Recommendations
+/*
+Example of what `displayableTableData` might look like for "PR":
+[
+  {
+    "item_id": 1,
+    "current_overall_status": "In Progress",
+    "is_shipped": false,
+    "item_notes": "Note for item 1",
+    "Unit S/N": "PR-U0001",
+    "PCB S/N": "PR-P0001A",
+    "Firmware Version": "v1.0.2",
+    "Calibration Date": "2025-06-01"
+  },
+  {
+    "item_id": 2,
+    "current_overall_status": "Pending",
+    "is_shipped": false,
+    "item_notes": null,
+    "Unit S/N": "PR-U0002",
+    "PCB S/N": "PR-P0002B",
+    "Firmware Version": null, // Or undefined, because it wasn't in ItemAttributeValues
+    "Calibration Date": null  // Or undefined
+  },
+  // ... other items
+]
+*/
 
-```sql
--- Performance indexes for frequently queried columns
-CREATE INDEX IX_StepDefinitions_ProjectID ON StepDefinitions(ProjectID);
-CREATE INDEX IX_ProductionBatches_ProjectID ON ProductionBatches(ProjectID);
-CREATE INDEX IX_BatchUnits_ProductionBatchID ON BatchUnits(ProductionBatchID);
-CREATE INDEX IX_UnitStepProgress_BatchUnitID ON UnitStepProgress(BatchUnitID);
-CREATE INDEX IX_UnitStepProgress_StepDefinitionID ON UnitStepProgress(StepDefinitionID);
-CREATE INDEX IX_InventoryTransactions_InventoryItemID ON InventoryTransactions(InventoryItemID);
-```
+Frontend Handling:
 
-## API Endpoints
+This displayableTableData array is now in a format that most table components can easily consume. Each object is a row, and the keys of the objects correspond to the column headers.
 
-### Projects API
+When rendering the table body (<tbody>), iterate through displayableTableData. For each item, iterate through fetchedColumnDefinitions (to maintain column order) and use item[colDef.attribute_name] to get the cell value.
 
-```
-GET    /api/projects                     # Get all projects
-GET    /api/projects/:id                 # Get project by ID
-POST   /api/projects                     # Create new project
-PUT    /api/projects/:id                 # Update project
-DELETE /api/projects/:id                 # Delete project
-GET    /api/projects/:id/steps           # Get steps for project
-POST   /api/projects/:id/steps           # Create step for project
-PUT    /api/projects/steps/:stepId       # Update step
-DELETE /api/projects/steps/:stepId       # Delete step
-```
+Why this approach?
 
-### Production Batches API
+Flexibility: The frontend doesn't need to know the column names in advance. It discovers them from AttributeDefinitions (Query 3).
 
-```
-GET    /api/batches                      # Get all batches
-GET    /api/batches/:id                  # Get batch by ID
-POST   /api/batches                      # Create new batch
-PUT    /api/batches/:id                  # Update batch
-DELETE /api/batches/:id                  # Delete batch
-GET    /api/batches/:id/units            # Get units in batch
-POST   /api/batches/:id/units            # Add units to batch
-PUT    /api/batches/units/:unitId        # Update unit
-DELETE /api/batches/units/:unitId        # Delete unit
-```
+Efficiency: Query 5 (EAV data) can be large, but it's a structured way to get all dynamic data. The transformation (pivot) happens on the client-side.
 
-### Unit Step Progress API
+Standard: This is a common pattern for handling EAV data in applications.
 
-```
-GET    /api/units/:unitId/progress       # Get all step progress for unit
-PUT    /api/units/:unitId/steps/:stepId  # Update step status for unit
-POST   /api/units/bulk-update            # Bulk update step status for multiple units
-```
+Alternative: SQL PIVOT (Query 5 - PIVOT example)
 
-### Inventory API
+The PIVOT example in Query 5 shows how SQL could return the data already in a table-like structure.
 
-```
-GET    /api/inventory                    # Get all inventory items
-GET    /api/inventory/:id                # Get inventory item by ID
-POST   /api/inventory                    # Create new inventory item
-PUT    /api/inventory/:id                # Update inventory item
-DELETE /api/inventory/:id                # Delete inventory item
-GET    /api/inventory/:id/transactions   # Get transactions for item
-POST   /api/inventory/:id/adjust         # Adjust inventory levels
-```
+Challenge: The FOR attribute_name IN ([Col1], [Col2], ...) part of the SQL PIVOT query needs to know the column names in advance. This means you'd have to dynamically construct this part of the SQL query on the backend, based on the results of Query 3. This can be complex and might lead to SQL injection vulnerabilities if not handled very carefully.
 
-### Authentication API
+Benefit: If done on the backend, the frontend receives data already in the final table format, simplifying frontend logic.
 
-```
-GET    /api/auth/user                    # Get current user info
-POST   /api/auth/login                   # Login (if using form auth)
-POST   /api/auth/logout                  # Logout
-```
+Trade-off: More complex backend logic vs. more complex frontend transformation logic. For many web applications, performing the pivot in the frontend JavaScript is common and often more manageable.
+
+This explanation should give you a clear picture of how the data flows from the database to a dynamically rendered table in your application.
