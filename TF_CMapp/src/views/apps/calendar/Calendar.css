@@ -1,0 +1,146 @@
+.rbc-event.event-azure {
+  background-color: #1a97f520;
+  color:#1a97f5;
+  border-color: #1a97f5;
+}
+
+.rbc-event.event-default {
+  background-color: #615dff20;
+  color:#615dff;
+  border-color: #615dff;
+}
+.rbc-event.event-red {
+  background-color: #fc4b6c20;
+  color:#fc4b6c;
+  border-color: #fc4b6c;
+}
+.rbc-event.event-green {
+  background-color: #39b69a20;
+  color:#39b69a;
+  border-color: #39b69a;
+}
+.rbc-event.event-warning {
+  background-color: #fdd43f20;
+  color:#fdd43f;
+  border-color: #fdd43f;
+}
+.rbc-off-range-bg {
+  background-color: #d2d2d20d;
+}
+.darkbg .rbc-today {
+  background-color: #8fbece;
+}
+.rbc-month-row + .rbc-month-row,
+.rbc-day-bg + .rbc-day-bg,
+.rbc-header,
+.rbc-month-view,
+.rbc-toolbar button,
+.rbc-time-content > * + * > * {
+  border-color: #f6f6f6;
+}
+.darkbg .rbc-month-row + .rbc-month-row,
+.darkbg .rbc-day-bg + .rbc-day-bg,
+.darkbg .rbc-header,
+.darkbg .rbc-month-view,
+.darkbg .rbc-toolbar button,
+.darkbg .rbc-time-content > * + * > * {
+  border-color: #343e54;
+}
+.rbc-event{
+  border-width: 0 0 0 4px;
+    border-style: solid;
+    padding: 8px 10px;
+    margin-bottom: 1px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.rbc-event:focus,
+.rbc-day-slot .rbc-background-event:focus {
+  outline: none;
+}
+.darkbg .rbc-toolbar button {
+  color: rgba(255, 255, 255, 0.5);
+}
+.darkbg .rbc-toolbar button:active,
+.darkbg .rbc-toolbar button.rbc-active {
+  background-color: rgba(0, 0, 0, 0.5);
+  border-color: #d2d2d20d;
+}
+.form-control {
+  height: 50px;
+  line-height: 40px;
+  font-size: 18px;
+  width: 100%;
+  border-width: 1px;
+  padding: 5px;
+  border-color: rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+}
+.btn {
+  padding: 10px 15px;
+  box-shadow: none !important;
+  border-radius: 5px;
+  text-decoration: none;
+  color: white;
+}
+.btn-primary {
+  background-color: #2b2b2b;
+}
+.btn-secondary {
+  background-color: #1a97f5;
+}
+
+@media (max-width: 767px) {
+  .rbc-btn-group {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 15px;
+  }
+  .rbc-toolbar .rbc-toolbar-label {
+    margin-bottom: 15px;
+    display: block;
+  }
+  .rbc-calendar {
+    height: 100vh !important;
+  }
+}
+
+/* Custom styling for project timeline events */
+.rbc-calendar {
+  min-height: 600px;
+  padding-top: 16px; /* Add padding at the top of the calendar */
+}
+
+/* Reduce height of event bars to allow more events without scrolling */
+.rbc-event {
+  font-size: 11px !important; /* Slightly smaller font */
+  line-height: 1.2 !important; /* Tighter line height */
+  padding: 2px 4px !important; /* Reduced padding */
+  min-height: 16px !important; /* Smaller minimum height */
+  max-height: 20px !important; /* Maximum height to prevent tall bars */
+  overflow: hidden !important; /* Hide overflow text */
+  white-space: nowrap !important; /* Keep text on one line */
+  text-overflow: ellipsis !important; /* Add ellipsis for long text */
+}
+
+/* Reduce row height in month view to accommodate more events */
+.rbc-month-row {
+  min-height: 100px !important; /* Reduce from default height */
+}
+
+/* Ensure event containers have proper spacing */
+.rbc-date-cell > .rbc-row {
+  margin-bottom: 1px !important; /* Minimal spacing between events */
+}
+
+/* Style for the calendar container to add top padding */
+.rbc-calendar .rbc-month-view {
+  padding-top: 8px;
+}
+
+/* Toolbar styling improvements */
+.rbc-toolbar {
+  margin-bottom: 20px !important; /* More space below toolbar */
+  padding: 0 8px; /* Side padding for toolbar */
+}

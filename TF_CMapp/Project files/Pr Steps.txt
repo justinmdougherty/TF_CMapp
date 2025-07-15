@@ -1,0 +1,23 @@
+Listed below are the steps I’d like to capture in a “traveler” format.
+
+•	PCB mods performed
+•	PCB mods QC
+•	Programmed
+•	Board level function check
+•	Unit removed from shell
+•	Potting removed from unit and checked for damage
+•	Pictures of unit captured
+•	PWR, GND, EFFECT and ANT wires soldered to PCB
+•	PWR, GND, EFFECT and ANT wires soldering QC
+•	PCB mounted in bracket and ANT wire routed
+•	PWR, GND and EFFECT wires soldered to Unit
+•	PWR, GND and EFFECT wires soldering QC
+•	Integrated unit function check
+•	AM150 potting poured and cured
+•	SC-550 potting poured and cured
+•	Integrated unit function check
+•	Platform function check
+
+For unit labelling what we would need to capture on the AVERY label is:
+•	Unit SN
+•	PCB SN
