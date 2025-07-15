@@ -1015,22 +1015,48 @@ GO
 
 -- Save Project (Insert/Update)
 CREATE PROCEDURE [dbo].[usp_SaveProject]
-    @project_id INT = NULL,
-    @program_id INT,
-    @project_name NVARCHAR(100),
-    @project_description NVARCHAR(MAX) = NULL,
-    @status NVARCHAR(50) = 'Planning',
-    @priority NVARCHAR(20) = 'Medium',
-    @project_manager_id INT = NULL,
-    @project_start_date DATE = NULL,
-    @project_end_date DATE = NULL,
-    @estimated_completion_date DATE = NULL,
-    @budget DECIMAL(18,2) = NULL,
-    @notes NVARCHAR(MAX) = NULL,
-    @created_by INT
+    @ProjectJson NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
+    
+    -- Parse JSON input
+    DECLARE @project_id INT,
+            @program_id INT,
+            @project_name NVARCHAR(100),
+            @project_description NVARCHAR(MAX),
+            @status NVARCHAR(50),
+            @priority NVARCHAR(20),
+            @project_manager_id INT,
+            @project_start_date DATE,
+            @project_end_date DATE,
+            @estimated_completion_date DATE,
+            @budget DECIMAL(18,2),
+            @notes NVARCHAR(MAX),
+            @created_by INT;
+    
+    -- Extract values from JSON
+    SELECT 
+        @project_id = JSON_VALUE(@ProjectJson, '$.project_id'),
+        @program_id = JSON_VALUE(@ProjectJson, '$.program_id'),
+        @project_name = JSON_VALUE(@ProjectJson, '$.project_name'),
+        @project_description = JSON_VALUE(@ProjectJson, '$.project_description'),
+        @status = ISNULL(JSON_VALUE(@ProjectJson, '$.status'), 'Planning'),
+        @priority = ISNULL(JSON_VALUE(@ProjectJson, '$.priority'), 'Medium'),
+        @project_manager_id = JSON_VALUE(@ProjectJson, '$.project_manager_id'),
+        @project_start_date = JSON_VALUE(@ProjectJson, '$.project_start_date'),
+        @project_end_date = JSON_VALUE(@ProjectJson, '$.project_end_date'),
+        @estimated_completion_date = JSON_VALUE(@ProjectJson, '$.estimated_completion_date'),
+        @budget = JSON_VALUE(@ProjectJson, '$.budget'),
+        @notes = JSON_VALUE(@ProjectJson, '$.notes'),
+        @created_by = JSON_VALUE(@ProjectJson, '$.created_by');
+    
+    -- Validate required fields
+    IF @program_id IS NULL OR @project_name IS NULL OR @project_name = '' OR @created_by IS NULL
+    BEGIN
+        RAISERROR('Required fields missing: program_id, project_name, and created_by are required.', 16, 1);
+        RETURN;
+    END
     
     IF @project_id IS NULL
     BEGIN
@@ -1093,22 +1119,48 @@ GO
 
 -- Save Task (Insert/Update)
 CREATE PROCEDURE [dbo].[usp_SaveTask]
-    @task_id INT = NULL,
-    @project_id INT = NULL,
-    @step_id INT = NULL,
-    @tracked_item_id INT = NULL,
-    @task_title NVARCHAR(255),
-    @task_description NVARCHAR(MAX) = NULL,
-    @assigned_to INT,
-    @assigned_by INT,
-    @priority NVARCHAR(20) = 'Medium',
-    @status NVARCHAR(50) = 'Pending',
-    @due_date DATETIME2 = NULL,
-    @estimated_hours DECIMAL(5,2) = NULL,
-    @notes NVARCHAR(MAX) = NULL
+    @TaskJson NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
+    
+    -- Parse JSON input
+    DECLARE @task_id INT,
+            @project_id INT,
+            @step_id INT,
+            @tracked_item_id INT,
+            @task_title NVARCHAR(255),
+            @task_description NVARCHAR(MAX),
+            @assigned_to INT,
+            @assigned_by INT,
+            @priority NVARCHAR(20),
+            @status NVARCHAR(50),
+            @due_date DATETIME2,
+            @estimated_hours DECIMAL(5,2),
+            @notes NVARCHAR(MAX);
+    
+    -- Extract values from JSON
+    SELECT 
+        @task_id = JSON_VALUE(@TaskJson, '$.task_id'),
+        @project_id = JSON_VALUE(@TaskJson, '$.project_id'),
+        @step_id = JSON_VALUE(@TaskJson, '$.step_id'),
+        @tracked_item_id = JSON_VALUE(@TaskJson, '$.tracked_item_id'),
+        @task_title = JSON_VALUE(@TaskJson, '$.task_title'),
+        @task_description = JSON_VALUE(@TaskJson, '$.task_description'),
+        @assigned_to = JSON_VALUE(@TaskJson, '$.assigned_to'),
+        @assigned_by = JSON_VALUE(@TaskJson, '$.assigned_by'),
+        @priority = ISNULL(JSON_VALUE(@TaskJson, '$.priority'), 'Medium'),
+        @status = ISNULL(JSON_VALUE(@TaskJson, '$.status'), 'Pending'),
+        @due_date = JSON_VALUE(@TaskJson, '$.due_date'),
+        @estimated_hours = JSON_VALUE(@TaskJson, '$.estimated_hours'),
+        @notes = JSON_VALUE(@TaskJson, '$.notes');
+    
+    -- Validate required fields
+    IF @task_title IS NULL OR @task_title = '' OR @assigned_to IS NULL OR @assigned_by IS NULL
+    BEGIN
+        RAISERROR('Required fields missing: task_title, assigned_to, and assigned_by are required.', 16, 1);
+        RETURN;
+    END
     
     IF @task_id IS NULL
     BEGIN
@@ -1185,23 +1237,50 @@ GO
 
 -- Save Inventory Item (Insert/Update)
 CREATE PROCEDURE [dbo].[usp_SaveInventoryItem]
-    @inventory_item_id INT = NULL,
-    @item_name NVARCHAR(255),
-    @part_number NVARCHAR(100) = NULL,
-    @description NVARCHAR(MAX) = NULL,
-    @category NVARCHAR(100) = NULL,
-    @unit_of_measure NVARCHAR(50),
-    @current_stock_level DECIMAL(18,4) = 0,
-    @reorder_point DECIMAL(18,4) = NULL,
-    @max_stock_level DECIMAL(18,4) = NULL,
-    @supplier_info NVARCHAR(MAX) = NULL,
-    @cost_per_unit DECIMAL(18,2) = NULL,
-    @location NVARCHAR(255) = NULL,
-    @program_id INT,
-    @created_by INT
+    @InventoryItemJson NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
+    
+    -- Parse JSON input
+    DECLARE @inventory_item_id INT,
+            @item_name NVARCHAR(255),
+            @part_number NVARCHAR(100),
+            @description NVARCHAR(MAX),
+            @category NVARCHAR(100),
+            @unit_of_measure NVARCHAR(50),
+            @current_stock_level DECIMAL(18,4),
+            @reorder_point DECIMAL(18,4),
+            @max_stock_level DECIMAL(18,4),
+            @supplier_info NVARCHAR(MAX),
+            @cost_per_unit DECIMAL(18,2),
+            @location NVARCHAR(255),
+            @program_id INT,
+            @created_by INT;
+    
+    -- Extract values from JSON
+    SELECT 
+        @inventory_item_id = JSON_VALUE(@InventoryItemJson, '$.inventory_item_id'),
+        @item_name = JSON_VALUE(@InventoryItemJson, '$.item_name'),
+        @part_number = JSON_VALUE(@InventoryItemJson, '$.part_number'),
+        @description = JSON_VALUE(@InventoryItemJson, '$.description'),
+        @category = JSON_VALUE(@InventoryItemJson, '$.category'),
+        @unit_of_measure = JSON_VALUE(@InventoryItemJson, '$.unit_of_measure'),
+        @current_stock_level = ISNULL(JSON_VALUE(@InventoryItemJson, '$.current_stock_level'), 0),
+        @reorder_point = JSON_VALUE(@InventoryItemJson, '$.reorder_point'),
+        @max_stock_level = JSON_VALUE(@InventoryItemJson, '$.max_stock_level'),
+        @supplier_info = JSON_VALUE(@InventoryItemJson, '$.supplier_info'),
+        @cost_per_unit = JSON_VALUE(@InventoryItemJson, '$.cost_per_unit'),
+        @location = JSON_VALUE(@InventoryItemJson, '$.location'),
+        @program_id = JSON_VALUE(@InventoryItemJson, '$.program_id'),
+        @created_by = JSON_VALUE(@InventoryItemJson, '$.created_by');
+    
+    -- Validate required fields
+    IF @item_name IS NULL OR @item_name = '' OR @unit_of_measure IS NULL OR @unit_of_measure = '' OR @program_id IS NULL OR @created_by IS NULL
+    BEGIN
+        RAISERROR('Required fields missing: item_name, unit_of_measure, program_id, and created_by are required.', 16, 1);
+        RETURN;
+    END
     
     -- Check if part_number already exists (if provided)
     IF @part_number IS NOT NULL AND @part_number != ''
@@ -1328,19 +1407,42 @@ GO
 
 -- Save Project Step
 CREATE PROCEDURE [dbo].[usp_SaveProjectStep]
-    @step_id INT = NULL,
-    @project_id INT,
-    @step_code NVARCHAR(100) = NULL,
-    @step_name NVARCHAR(255),
-    @step_description NVARCHAR(MAX) = NULL,
-    @step_order INT,
-    @estimated_duration_hours DECIMAL(8,2) = NULL,
-    @is_quality_control BIT = 0,
-    @requires_approval BIT = 0,
-    @approval_role NVARCHAR(100) = NULL
+    @StepJson NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
+    
+    -- Parse JSON input
+    DECLARE @step_id INT,
+            @project_id INT,
+            @step_code NVARCHAR(100),
+            @step_name NVARCHAR(255),
+            @step_description NVARCHAR(MAX),
+            @step_order INT,
+            @estimated_duration_hours DECIMAL(8,2),
+            @is_quality_control BIT,
+            @requires_approval BIT,
+            @approval_role NVARCHAR(100);
+    
+    -- Extract values from JSON
+    SELECT 
+        @step_id = JSON_VALUE(@StepJson, '$.step_id'),
+        @project_id = JSON_VALUE(@StepJson, '$.project_id'),
+        @step_code = JSON_VALUE(@StepJson, '$.step_code'),
+        @step_name = JSON_VALUE(@StepJson, '$.step_name'),
+        @step_description = JSON_VALUE(@StepJson, '$.step_description'),
+        @step_order = JSON_VALUE(@StepJson, '$.step_order'),
+        @estimated_duration_hours = JSON_VALUE(@StepJson, '$.estimated_duration_hours'),
+        @is_quality_control = ISNULL(JSON_VALUE(@StepJson, '$.is_quality_control'), 0),
+        @requires_approval = ISNULL(JSON_VALUE(@StepJson, '$.requires_approval'), 0),
+        @approval_role = JSON_VALUE(@StepJson, '$.approval_role');
+    
+    -- Validate required fields
+    IF @project_id IS NULL OR @step_name IS NULL OR @step_name = '' OR @step_order IS NULL
+    BEGIN
+        RAISERROR('Required fields missing: project_id, step_name, and step_order are required.', 16, 1);
+        RETURN;
+    END
     
     IF @step_id IS NULL
     BEGIN
@@ -1458,14 +1560,32 @@ GO
 
 -- Add item to cart
 CREATE PROCEDURE [dbo].[usp_AddToCart]
-    @user_id INT,
-    @inventory_item_id INT,
-    @quantity_requested DECIMAL(18,4),
-    @estimated_cost DECIMAL(18,2) = NULL,
-    @notes NVARCHAR(MAX) = NULL
+    @CartItemJson NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
+    
+    -- Parse JSON input
+    DECLARE @user_id INT,
+            @inventory_item_id INT,
+            @quantity_requested DECIMAL(18,4),
+            @estimated_cost DECIMAL(18,2),
+            @notes NVARCHAR(MAX);
+    
+    -- Extract values from JSON
+    SELECT 
+        @user_id = JSON_VALUE(@CartItemJson, '$.user_id'),
+        @inventory_item_id = JSON_VALUE(@CartItemJson, '$.inventory_item_id'),
+        @quantity_requested = JSON_VALUE(@CartItemJson, '$.quantity_requested'),
+        @estimated_cost = JSON_VALUE(@CartItemJson, '$.estimated_cost'),
+        @notes = JSON_VALUE(@CartItemJson, '$.notes');
+    
+    -- Validate required fields
+    IF @user_id IS NULL OR @inventory_item_id IS NULL OR @quantity_requested IS NULL OR @quantity_requested <= 0
+    BEGIN
+        RAISERROR('Required fields missing: user_id, inventory_item_id, and quantity_requested > 0 are required.', 16, 1);
+        RETURN;
+    END
     
     -- Check if item already exists in cart for this user
     IF EXISTS (SELECT 1 FROM CartItems WHERE user_id = @user_id AND inventory_item_id = @inventory_item_id)
@@ -1499,14 +1619,32 @@ GO
 
 -- Update cart item quantity
 CREATE PROCEDURE [dbo].[usp_UpdateCartItem]
-    @cart_id INT,
-    @user_id INT,
-    @quantity_requested DECIMAL(18,4),
-    @estimated_cost DECIMAL(18,2) = NULL,
-    @notes NVARCHAR(MAX) = NULL
+    @CartItemJson NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
+    
+    -- Parse JSON input
+    DECLARE @cart_id INT,
+            @user_id INT,
+            @quantity_requested DECIMAL(18,4),
+            @estimated_cost DECIMAL(18,2),
+            @notes NVARCHAR(MAX);
+    
+    -- Extract values from JSON
+    SELECT 
+        @cart_id = JSON_VALUE(@CartItemJson, '$.cart_id'),
+        @user_id = JSON_VALUE(@CartItemJson, '$.user_id'),
+        @quantity_requested = JSON_VALUE(@CartItemJson, '$.quantity_requested'),
+        @estimated_cost = JSON_VALUE(@CartItemJson, '$.estimated_cost'),
+        @notes = JSON_VALUE(@CartItemJson, '$.notes');
+    
+    -- Validate required fields
+    IF @cart_id IS NULL OR @user_id IS NULL OR @quantity_requested IS NULL OR @quantity_requested <= 0
+    BEGIN
+        RAISERROR('Required fields missing: cart_id, user_id, and quantity_requested > 0 are required.', 16, 1);
+        RETURN;
+    END
     
     -- Verify cart item belongs to the user
     IF NOT EXISTS (SELECT 1 FROM CartItems WHERE cart_id = @cart_id AND user_id = @user_id)

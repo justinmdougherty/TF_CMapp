@@ -106,10 +106,19 @@ jspm_packages/
 # Database files
 *.db
 *.sqlite
+*.mdf
+*.ldf
+*.ndf
+*.bak
+*.backup
 
 # Temporary files
 tmp/
 temp/
+*.tmp
+*.temp
+.tmp/
+.temp/
 
 # API specific
 api/uploads/
@@ -118,9 +127,81 @@ api/temp/
 # Frontend specific
 TF_CMapp/dist/
 TF_CMapp/build/
+H10CM/dist/
+H10CM/build/
 
 # Test coverage
 coverage/
 
-#Ignore vscode AI rules
-.github\copilot-instructions.md
+# Microsoft Office temporary files
+~$*.doc*
+~$*.xls*
+~$*.ppt*
+~$*.xl*
+
+# Backup files
+*_backup.*
+index_backup.js
+
+# Test files (temporary)
+test_*.sql
+*_test.sql
+
+# Certificate files (sensitive)
+*.pfx
+*.p12
+*.key
+*.crt
+*.pem
+
+# Local development scripts
+local_*
+dev_*
+
+# Netlify
+.netlify/
+netlify/functions-serve/
+netlify/functions-build/
+
+# Docker volumes
+docker-volumes/
+
+# API keys and secrets
+api_keys.json
+secrets.json
+connection_strings.json
+
+# Vite specific
+dist-ssr/
+*.local
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Jest
+junit.xml
+
+# Yarn 2+
+.yarn/*
+!.yarn/cache
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+
+# PNPM
+.pnpm-store/
+.pnpm-debug.log*
+
+# Windows specific
+*.lnk
+
+# MCP Memory Server
+# .memory/  # Uncomment to ignore memory files, but we want to track them
+
+# Ignore vscode AI rules (but allow copilot-instructions.md for this project)
+# .github\copilot-instructions.md
