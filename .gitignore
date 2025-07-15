@@ -205,3 +205,55 @@ junit.xml
 
 # Ignore vscode AI rules (but allow copilot-instructions.md for this project)
 # .github\copilot-instructions.md
+
+# =============================================
+# TEMPLATE FILES TO EXCLUDE
+# =============================================
+
+# Modernize template demo files - exclude these
+H10CM/src/api/blog/
+H10CM/src/api/chat/
+H10CM/src/api/eCommerce/
+H10CM/src/api/email/
+H10CM/src/api/invoice/
+H10CM/src/api/kanban/
+H10CM/src/api/mocks/
+H10CM/src/api/notes/
+H10CM/src/api/ticket/
+H10CM/src/api/userprofile/
+
+# Template type definitions
+H10CM/src/types/apps/blog.ts
+H10CM/src/types/apps/chat.ts
+H10CM/src/types/apps/contact.ts
+H10CM/src/types/apps/eCommerce.ts
+H10CM/src/types/apps/email.ts
+H10CM/src/types/apps/invoice.ts
+H10CM/src/types/apps/kanban.ts
+H10CM/src/types/apps/notes.ts
+H10CM/src/types/apps/ticket.ts
+H10CM/src/types/apps/userProfile.ts
+H10CM/src/types/apps/users.ts
+
+# Template demo images
+H10CM/src/assets/images/blog/
+H10CM/src/assets/images/products/
+H10CM/src/assets/images/profile/user-*.jpg
+H10CM/src/assets/images/breadcrumb/
+H10CM/src/assets/images/backgrounds/404-error-idea.gif
+H10CM/src/assets/images/backgrounds/piggy.png
+H10CM/src/assets/images/backgrounds/unlimited-bg.png
+H10CM/src/assets/images/backgrounds/website-under-construction.gif
+
+# Template internationalization
+H10CM/src/utils/languages/
+H10CM/src/utils/i18n.ts
+
+# Template demo views
+H10CM/src/views/apps/notes/
+H10CM/src/views/apps/tickets/
+H10CM/src/views/apps/calendar/
+
+# Template demo components
+H10CM/src/components/apps/notes/
+H10CM/src/components/apps/tickets/
