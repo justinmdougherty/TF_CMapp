@@ -7,7 +7,7 @@ import { ProjectStep } from 'src/types/ProjectSteps';
 import { AttributeDefinition } from 'src/types/AttributeDefinition'; // Assuming this type exists
 import { StepInventoryRequirement } from 'src/types/StepInventoryRequirement'; // Assuming this type exists
 import { TrackedItem, TrackedItemAttribute, TrackedItemStepProgress } from 'src/types/TrackedItem';
-import { PendingOrderItem, PendingOrderSummary, ReceiveItemsRequest, PendingOrderStatus, PendingOrderHeader } from '../types/PendingOrders';
+import { PendingOrderItem, PendingOrderSummary, ReceiveItemsRequest, PendingOrderStatus } from '../types/PendingOrders';
 import smartNotifications from './smartNotificationService';
 import certificateService from './certificateService';
 
@@ -15,6 +15,143 @@ import certificateService from './certificateService';
 const apiClient = axios.create({
   baseURL: '/api',
 });
+
+// Program context - this will be set by the ProgramContext
+let currentProgramId: number | null = null;
+let userCertificateData: string | null = null;
+
+// Function to set the current program context
+export const setCurrentProgram = (programId: number | null) => {
+  currentProgramId = programId;
+};
+
+// Function to get the current program context
+export const getCurrentProgram = (): number | null => {
+  return currentProgramId;
+};
+
+// Function to set certificate data for authentication
+export const setCertificateData = (certData: string | null) => {
+  userCertificateData = certData;
+};
+
+// Function to get user certificate for authentication
+const getUserCertificate = async (): Promise<string | null> => {
+  if (userCertificateData) {
+    return userCertificateData;
+  }
+  
+  try {
+    // Try to get certificate from the certificate service
+    const user = await certificateService.getCurrentUser();
+    if (user.certificateInfo?.subject) {
+      // In a real implementation, this would be the actual certificate data
+      // For now, we'll use a placeholder that matches the backend expectation
+      return user.certificateInfo.subject;
+    }
+  } catch (error) {
+    console.warn('Could not get certificate from service:', error);
+  }
+  
+  return null;
+};
+
+// Request interceptor for logging and adding program context + authentication
+apiClient.interceptors.request.use(
+  async (config) => {
+    console.log('Making H10CM API request:', config.method?.toUpperCase(), config.url);
+    
+    // Add certificate authentication header
+    try {
+      const cert = await getUserCertificate();
+      if (cert) {
+        config.headers['x-arr-clientcert'] = cert;
+      }
+    } catch (error) {
+      console.warn('Could not add certificate to request:', error);
+    }
+    
+    // Add program_id to requests that need it
+    if (currentProgramId && config.url && shouldIncludeProgramId(config.url)) {
+      // For GET requests, add as query parameter
+      if (config.method === 'get') {
+        config.params = { ...config.params, program_id: currentProgramId };
+      }
+      // For POST/PUT requests, add to data if it's an object
+      else if (config.data && typeof config.data === 'object') {
+        config.data = { ...config.data, program_id: currentProgramId };
+      }
+    }
+    
+    return config;
+  },
+  (error) => {
+    console.error('Request error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor for logging and error handling
+apiClient.interceptors.response.use(
+  (response) => {
+    console.log('H10CM API response:', response.status, response.config.url);
+    return response;
+  },
+  (error) => {
+    console.error('H10CM API error:', error.response?.status, error.response?.data || error.message);
+    return Promise.reject(error);
+  }
+);
+
+// Helper function to determine if an endpoint needs program_id
+const shouldIncludeProgramId = (url: string): boolean => {
+  const programAwareEndpoints = [
+    '/projects',
+    '/steps',
+    '/tracked-items',
+    '/inventory-items',
+  ];
+  
+  return programAwareEndpoints.some(endpoint => url.includes(endpoint));
+};
+
+// --- Program Management API Functions ---
+export const fetchPrograms = async (): Promise<any[]> => {
+  const { data } = await apiClient.get('/programs');
+  return data;
+};
+
+export const fetchProgramById = async (programId: number): Promise<any> => {
+  const { data } = await apiClient.get(`/programs/${programId}`);
+  return data;
+};
+
+export const createProgram = async (program: { program_name: string; program_code: string; program_description: string }): Promise<any> => {
+  const { data } = await apiClient.post('/programs', program);
+  return data;
+};
+
+// --- Authentication API Functions ---
+export const authenticateUser = async (): Promise<any> => {
+  try {
+    // First try to get the current user info to establish authentication
+    const response = await apiClient.get('/auth/me');
+    return response.data;
+  } catch (error) {
+    console.error('Authentication failed:', error);
+    throw error;
+  }
+};
+
+export const fetchUserPrograms = async (): Promise<any[]> => {
+  try {
+    const response = await apiClient.get('/programs');
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch user programs:', error);
+    throw error;
+  }
+};
 
 // --- Project API Functions ---
 export const fetchProjects = async (): Promise<Project[]> => {
@@ -142,8 +279,39 @@ export const createInventoryItem = async (item: Omit<InventoryItem, 'inventory_i
 };
 
 export const updateInventoryItem = async (item: InventoryItem): Promise<InventoryItem> => {
-  const { data } = await apiClient.put(`/inventory-items/${item.inventory_item_id}`, item);
-  return data;
+  try {
+    // Use localStorage for mock data
+    const existingItems = JSON.parse(localStorage.getItem('inventoryItems') || '[]');
+    const updatedItems = existingItems.map((existingItem: InventoryItem) => 
+      existingItem.inventory_item_id === item.inventory_item_id ? item : existingItem
+    );
+    
+    localStorage.setItem('inventoryItems', JSON.stringify(updatedItems));
+    
+    console.log('Updated inventory item (localStorage):', item);
+    
+    // Create notification for successful update
+    smartNotifications.createNotification({
+      type: 'success',
+      category: 'inventory',
+      title: 'Inventory Item Updated',
+      message: `${item.item_name} has been updated successfully.`,
+      metadata: { 
+        inventoryItemId: item.inventory_item_id,
+        stockLevel: item.current_stock_level,
+        reorderPoint: item.reorder_point
+      }
+    });
+    
+    return item;
+  } catch (error) {
+    console.error('Error updating inventory item:', error);
+    throw error;
+  }
+  
+  // When backend is ready, uncomment:
+  // const { data } = await apiClient.put(`/inventory-items/${item.inventory_item_id}`, item);
+  // return data;
 };
 
 export const adjustInventoryStock = async (adjustment: InventoryAdjustment): Promise<void> => {
@@ -152,13 +320,117 @@ export const adjustInventoryStock = async (adjustment: InventoryAdjustment): Pro
 
 // Bulk operations
 export const bulkAdjustInventoryStock = async (adjustments: InventoryAdjustment[]): Promise<BulkSubmissionResult> => {
-  const { data } = await apiClient.post('/inventory-items/bulk-adjust', { adjustments });
-  return data;
+  try {
+    // Use localStorage for mock data
+    const existingItems = JSON.parse(localStorage.getItem('inventoryItems') || '[]');
+    const successfulAdjustments: string[] = [];
+    const failedAdjustments: string[] = [];
+    
+    adjustments.forEach((adjustment) => {
+      const itemIndex = existingItems.findIndex(
+        (item: InventoryItem) => item.inventory_item_id === adjustment.inventory_item_id
+      );
+      
+      if (itemIndex !== -1) {
+        const item = existingItems[itemIndex];
+        const quantityChange = adjustment.transaction_type === 'add' 
+          ? adjustment.quantity_changed 
+          : -adjustment.quantity_changed;
+        
+        const newStockLevel = item.current_stock_level + quantityChange;
+        
+        // Prevent negative stock
+        if (newStockLevel >= 0) {
+          existingItems[itemIndex].current_stock_level = newStockLevel;
+          successfulAdjustments.push(adjustment.inventory_item_id.toString());
+          
+          // Create notification for stock adjustment
+          smartNotifications.createNotification({
+            type: adjustment.transaction_type === 'add' ? 'success' : 'info',
+            category: 'inventory',
+            title: `Stock ${adjustment.transaction_type === 'add' ? 'Added' : 'Removed'}`,
+            message: `${item.item_name}: ${adjustment.transaction_type === 'add' ? '+' : '-'}${adjustment.quantity_changed} units. New stock: ${newStockLevel}`,
+            metadata: { 
+              inventoryItemId: adjustment.inventory_item_id,
+              oldStockLevel: item.current_stock_level,
+              newStockLevel: newStockLevel,
+              adjustment: adjustment.quantity_changed
+            }
+          });
+        } else {
+          failedAdjustments.push(adjustment.inventory_item_id.toString());
+        }
+      } else {
+        failedAdjustments.push(adjustment.inventory_item_id.toString());
+      }
+    });
+    
+    localStorage.setItem('inventoryItems', JSON.stringify(existingItems));
+    
+    console.log('Bulk adjusted inventory stock (localStorage):', { successfulAdjustments, failedAdjustments });
+    
+    return {
+      success: failedAdjustments.length === 0,
+      message: `Successfully processed ${successfulAdjustments.length} adjustments${failedAdjustments.length > 0 ? `, ${failedAdjustments.length} failed` : ''}`,
+      successfulItems: successfulAdjustments,
+      failedItems: failedAdjustments.map(id => ({ cartItemId: id, error: 'Could not process adjustment' }))
+    };
+  } catch (error) {
+    console.error('Error bulk adjusting inventory stock:', error);
+    throw error;
+  }
+  
+  // When backend is ready, uncomment:
+  // const { data } = await apiClient.post('/inventory-items/bulk-adjust', { adjustments });
+  // return data;
 };
 
 export const bulkAddInventoryItems = async (items: Omit<InventoryItem, 'inventory_item_id' | 'current_stock_level'>[]): Promise<BulkSubmissionResult> => {
-  const { data } = await apiClient.post('/inventory-items/bulk-add', { items });
-  return data;
+  try {
+    // Use localStorage for mock data
+    const existingItems = JSON.parse(localStorage.getItem('inventoryItems') || '[]');
+    const newItems: InventoryItem[] = [];
+    
+    items.forEach((item) => {
+      const inventoryItem: InventoryItem = {
+        ...item,
+        inventory_item_id: Date.now() + Math.random(), // Simple ID generation
+        current_stock_level: 0, // New items start with 0 stock
+      };
+      newItems.push(inventoryItem);
+    });
+    
+    const updatedItems = [...existingItems, ...newItems];
+    localStorage.setItem('inventoryItems', JSON.stringify(updatedItems));
+    
+    console.log('Bulk added inventory items (localStorage):', newItems);
+    
+    // Create notification for successful bulk addition
+    smartNotifications.createNotification({
+      type: 'success',
+      category: 'inventory',
+      title: 'Bulk Inventory Items Added',
+      message: `${newItems.length} new inventory items have been added successfully.`,
+      metadata: { 
+        itemCount: newItems.length,
+        itemNames: newItems.map(item => item.item_name).join(', ')
+      }
+    });
+    
+    return {
+      success: true,
+      message: `Successfully added ${newItems.length} inventory items`,
+      successfulItems: newItems.map(item => item.inventory_item_id.toString()),
+      failedItems: []
+    };
+  } catch (error) {
+    console.error('Error bulk adding inventory items:', error);
+    throw error;
+  }
+  
+  // When backend is ready, uncomment:
+  // const { data } = await apiClient.post('/inventory-items/bulk-add', { items });
+  // return data;
 };
 
 export const fetchInventoryTransactions = async (inventoryItemId: string): Promise<InventoryTransaction[]> => {
@@ -186,17 +458,135 @@ export const getInventoryByProject = async (projectId: number): Promise<Inventor
 
 // The API returns { data: InventoryItem[] }
 export const getAllInventory = async (): Promise<{ data: InventoryItem[] }> => {
-  const response = await apiClient.get('/inventory-items');
-  return response.data;
+  try {
+    // Use localStorage for mock data (similar to pending orders)
+    const items = JSON.parse(localStorage.getItem('inventoryItems') || '[]');
+    
+    // Initialize with some sample data if empty
+    if (items.length === 0) {
+      const sampleItems = [
+        {
+          inventory_item_id: 1,
+          item_name: 'Aluminum Sheet 6061',
+          part_number: 'AL-6061-001',
+          description: 'Aluminum alloy sheet for aerospace applications',
+          current_stock_level: 25,
+          unit_of_measure: 'sheets',
+          reorder_point: 5,
+          estimated_cost: 45.50,
+          supplier: 'Aerospace Materials Inc',
+          notes: 'High-strength aluminum alloy'
+        },
+        {
+          inventory_item_id: 2,
+          item_name: 'Titanium Bolt Grade 5',
+          part_number: 'TI-GR5-M8',
+          description: 'M8 titanium bolt for high-stress applications',
+          current_stock_level: 3,
+          unit_of_measure: 'pieces',
+          reorder_point: 10,
+          estimated_cost: 12.75,
+          supplier: 'Fasteners Plus',
+          notes: 'Low stock - reorder soon'
+        },
+        {
+          inventory_item_id: 3,
+          item_name: 'Carbon Fiber Cloth',
+          part_number: 'CF-200-PLAIN',
+          description: '200gsm plain weave carbon fiber cloth',
+          current_stock_level: 50,
+          unit_of_measure: 'meters',
+          reorder_point: 20,
+          estimated_cost: 8.95,
+          supplier: 'Composite Materials Co',
+          notes: 'For lightweight structural components'
+        }
+      ];
+      
+      localStorage.setItem('inventoryItems', JSON.stringify(sampleItems));
+      console.log('Initialized inventory with sample data');
+      return { data: sampleItems };
+    }
+    
+    console.log('Fetched inventory items (localStorage):', items);
+    return { data: items };
+  } catch (error) {
+    console.error('Error fetching inventory items:', error);
+    return { data: [] };
+  }
+  
+  // When backend is ready, uncomment:
+  // const response = await apiClient.get('/inventory-items');
+  // return response.data;
 };
 
 export const addInventoryItem = async (newItem: Omit<InventoryItem, 'inventory_item_id'>): Promise<InventoryItem> => {
-  const { data } = await apiClient.post('/inventory-items', newItem);
-  return data;
+  try {
+    // Use localStorage for mock data
+    const existingItems = JSON.parse(localStorage.getItem('inventoryItems') || '[]');
+    
+    const inventoryItem: InventoryItem = {
+      ...newItem,
+      inventory_item_id: Date.now() + Math.random(), // Simple ID generation
+    };
+    
+    const updatedItems = [...existingItems, inventoryItem];
+    localStorage.setItem('inventoryItems', JSON.stringify(updatedItems));
+    
+    console.log('Added inventory item (localStorage):', inventoryItem);
+    
+    // Create notification for successful addition
+    smartNotifications.createNotification({
+      type: 'success',
+      category: 'inventory',
+      title: 'New Inventory Item Added',
+      message: `${inventoryItem.item_name} has been added to inventory with ${inventoryItem.current_stock_level} units.`,
+      metadata: { 
+        inventoryItemId: inventoryItem.inventory_item_id,
+        stockLevel: inventoryItem.current_stock_level,
+        reorderPoint: inventoryItem.reorder_point
+      }
+    });
+    
+    return inventoryItem;
+  } catch (error) {
+    console.error('Error adding inventory item:', error);
+    throw error;
+  }
+  
+  // When backend is ready, uncomment:
+  // const { data } = await apiClient.post('/inventory-items', newItem);
+  // return data;
 };
 
 export const deleteInventoryItem = async (id: number): Promise<void> => {
-  await apiClient.delete(`/inventory-items/${id}`);
+  try {
+    // Use localStorage for mock data
+    const existingItems = JSON.parse(localStorage.getItem('inventoryItems') || '[]');
+    const itemToDelete = existingItems.find((item: InventoryItem) => item.inventory_item_id === id);
+    const updatedItems = existingItems.filter((item: InventoryItem) => item.inventory_item_id !== id);
+    
+    localStorage.setItem('inventoryItems', JSON.stringify(updatedItems));
+    
+    if (itemToDelete) {
+      console.log('Deleted inventory item (localStorage):', itemToDelete);
+      
+      // Create notification for successful deletion
+      smartNotifications.createNotification({
+        type: 'info',
+        category: 'inventory',
+        title: 'Inventory Item Deleted',
+        message: `${itemToDelete.item_name} has been removed from inventory.`,
+        metadata: { inventoryItemId: id }
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting inventory item:', error);
+    throw error;
+  }
+  
+  // When backend is ready, uncomment:
+  // await apiClient.delete(`/inventory-items/${id}`);
 };
 
 // --- Attribute Definition API Functions ---
@@ -257,85 +647,103 @@ export const fetchStepProgressStatusView = async (): Promise<any[]> => {
 };
 
 // Pending Orders API
-export const fetchPendingOrders = async (): Promise<PendingOrderHeader[]> => {
+export const fetchPendingOrders = async (): Promise<PendingOrderItem[]> => {
+  // TODO: Replace with actual API call when backend is ready
+  // For now, use localStorage as temporary storage
   try {
-    // Use project_id=1 as default for now (this should be configurable)
-    const { data } = await apiClient.get(`/orders/pending?project_id=1`);
-    
-    if (data.success) {
-      console.log('Fetched pending orders from API:', data.orders);
-      return data.orders || [];
-    } else {
-      console.error('Failed to fetch pending orders:', data.error);
-      return [];
-    }
+    const orders = JSON.parse(localStorage.getItem('pendingOrders') || '[]');
+    console.log('Fetched pending orders (localStorage):', orders);
+    return orders;
   } catch (error) {
     console.error('Error fetching pending orders:', error);
     return [];
   }
+  
+  // Original API call (commented out for now)
+  // const { data } = await apiClient.get('/pending-orders');
+  // return data;
 };
 
 export const createPendingOrders = async (items: Omit<PendingOrderItem, 'pending_order_id' | 'quantity_received' | 'date_requested' | 'status'>[]): Promise<BulkSubmissionResult> => {
+  // TODO: Replace with actual API call when backend is ready
+  // For now, use localStorage as temporary storage
   try {
-    console.log('🔄 Creating pending orders for items:', items);
+    const existingOrders = JSON.parse(localStorage.getItem('pendingOrders') || '[]');
+    const updatedOrders = [...existingOrders];
+    const newOrders: any[] = [];
     
-    // First, add all items to the cart
-    const cartPromises = items.map(item => {
-      const cartItem = {
-        inventory_item_id: item.inventory_item_id,
-        quantity_requested: item.quantity_requested,
-        estimated_cost: item.estimated_cost || 0,
-        notes: item.notes || 'Bulk reorder request'
-      };
+    items.forEach(item => {
+      // Look for existing pending order with same item details
+      const existingIndex = updatedOrders.findIndex((order: PendingOrderItem) => 
+        order.item_name === item.item_name &&
+        order.part_number === item.part_number &&
+        order.supplier === item.supplier &&
+        order.status === 'requested' // Only combine with requested orders
+      );
       
-      console.log('🛒 Adding item to cart:', cartItem);
-      return apiClient.post('/cart/add', cartItem);
-    });
+      if (existingIndex !== -1) {
+        // Update existing order by adding quantities
+        updatedOrders[existingIndex] = {
+          ...updatedOrders[existingIndex],
+          quantity_requested: updatedOrders[existingIndex].quantity_requested + item.quantity_requested,
+          estimated_cost: (updatedOrders[existingIndex].estimated_cost || 0) + (item.estimated_cost || 0),
+          notes: `${updatedOrders[existingIndex].notes || ''}\nAdded ${item.quantity_requested} ${item.unit_of_measure} from bulk submission`.trim(),
+        };
+        
+        console.log(`Combined ${item.quantity_requested} ${item.unit_of_measure} of ${item.item_name} with existing order`);
+      } else {
+        // Create new order
+        const newOrder = {
+          ...item,
+          pending_order_id: Date.now() + Math.random(), // Simple ID generation
+          quantity_received: 0,
+          date_requested: new Date(),
+          status: 'requested' as PendingOrderStatus,
+        };
+        
+        updatedOrders.push(newOrder);
+        newOrders.push(newOrder);
 
-    // Wait for all items to be added to cart
-    console.log('⏳ Waiting for cart items to be added...');
-    const cartResults = await Promise.all(cartPromises);
-    console.log('✅ Cart items added successfully:', cartResults.map(r => r.data));
+        // Create notification for new order
+        smartNotifications.createNotification({
+          type: 'info',
+          category: 'orders',
+          title: 'New Order Requested',
+          message: `Request for ${item.quantity_requested} ${item.unit_of_measure} of ${item.item_name}`,
+          actionRequired: false,
+          relatedEntityType: 'order',
+          relatedEntityId: newOrder.pending_order_id,
+          actionUrl: '/orders/pending',
+          actionLabel: 'View Orders',
+          metadata: { 
+            itemName: item.item_name,
+            quantity: item.quantity_requested,
+            unitOfMeasure: item.unit_of_measure,
+            supplier: item.supplier
+          },
+          icon: '📝',
+        });
+      }
+    });
     
-    // Then create order from cart
-    const orderData = {
-      project_id: 1, // Use project_id=1 as default for now
-      supplier_info: items[0]?.supplier || 'Various Suppliers',
-      order_notes: `Bulk order created from ${items.length} items`
-    };
+    localStorage.setItem('pendingOrders', JSON.stringify(updatedOrders));
     
-    console.log('📦 Creating order from cart with data:', orderData);
-    const { data } = await apiClient.post('/orders/create-from-cart', orderData);
-    console.log('📋 Order creation response:', data);
+    console.log('Created/updated pending orders (localStorage):', { newOrders, totalOrders: updatedOrders.length });
     
-    if (data.success) {
-      console.log('✅ Created order from cart:', data.order);
-      return {
-        success: true,
-        message: `Successfully created order from ${items.length} items`,
-        successfulItems: items.map(item => item.inventory_item_id.toString()),
-        failedItems: []
-      };
-    } else {
-      throw new Error(data.error || 'Failed to create order from cart');
-    }
-  } catch (error) {
-    console.error('❌ Error creating pending orders:', error);
-    if (error && typeof error === 'object' && 'response' in error) {
-      const axiosError = error as any;
-      console.error('Response status:', axiosError.response?.status);
-      console.error('Response data:', axiosError.response?.data);
-    }
     return {
-      success: false,
-      message: 'Failed to create pending orders',
-      successfulItems: [],
-      failedItems: items.map(item => ({ 
-        cartItemId: item.inventory_item_id.toString(), 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      }))
+      success: true,
+      message: `Successfully processed ${items.length} pending orders (${newOrders.length} new, ${items.length - newOrders.length} combined with existing)`,
+      successfulItems: newOrders.map(order => order.pending_order_id.toString()),
+      failedItems: []
     };
+  } catch (error) {
+    console.error('Error creating pending orders:', error);
+    throw new Error('Failed to create pending orders');
   }
+  
+  // Original API call (commented out for now)
+  // const { data } = await apiClient.post('/pending-orders/bulk-create', { items });
+  // return data;
 };
 
 export const updatePendingOrderStatus = async (

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from "react";
 import {
   Drawer,
   Box,
@@ -14,7 +14,7 @@ import {
   CircularProgress,
   useTheme,
   alpha,
-} from '@mui/material';
+} from "@mui/material";
 import {
   Close as CloseIcon,
   Delete as DeleteIcon,
@@ -22,15 +22,15 @@ import {
   Remove as RemoveIcon,
   ShoppingCart as CartIcon,
   Receipt as ReceiptIcon,
-} from '@mui/icons-material';
-import { useCartStore, cartHelpers } from 'src/store/cartStore';
-import { CartItem } from 'src/types/Cart';
+} from "@mui/icons-material";
+import { useCartStore, cartHelpers } from "src/store/cartStore";
+import { CartItem } from "src/types/Cart";
 import {
   createPendingOrders,
-  createInventoryItem,
+  bulkAddInventoryItems,
   bulkAdjustInventoryStock,
-} from 'src/services/api';
-import certificateService from 'src/services/certificateService';
+} from "../../services/api";
+import certificateService from "src/services/certificateService";
 
 const CartDrawer: React.FC = () => {
   const theme = useTheme();
@@ -50,33 +50,16 @@ const CartDrawer: React.FC = () => {
 
   const summary = getCartSummary();
 
-  const handleQuantityChange = useCallback(
-    (cartItemId: string, newQuantity: number) => {
-      // Don't remove item if quantity is 0 (allow temporary 0 state)
-      if (newQuantity >= 0) {
-        updateItemQuantity(cartItemId, newQuantity);
-      }
-    },
-    [updateItemQuantity],
-  );
+  const handleQuantityChange = (cartItemId: string, newQuantity: number) => {
+    if (newQuantity >= 0) {
+      updateItemQuantity(cartItemId, newQuantity);
+    }
+  };
 
-  const handleQuantityBlur = useCallback(
-    (cartItemId: string, quantity: number) => {
-      // Remove item only when user finishes editing and quantity is still 0
-      if (quantity === 0) {
-        removeItem(cartItemId);
-      }
-    },
-    [removeItem],
-  );
-
-  const handleCostChange = useCallback(
-    (cartItemId: string, newCost: string) => {
-      const cost = parseFloat(newCost) || 0;
-      updateItemCost(cartItemId, cost);
-    },
-    [updateItemCost],
-  );
+  const handleCostChange = (cartItemId: string, newCost: string) => {
+    const cost = parseFloat(newCost) || 0;
+    updateItemCost(cartItemId, cost);
+  };
 
   const handleBulkSubmit = async () => {
     setIsSubmitting(true);
@@ -88,36 +71,32 @@ const CartDrawer: React.FC = () => {
       const adjustmentItems = useCartStore.getState().getAdjustmentItems();
 
       let allSuccessful = true;
-      const errors: string[] = []; // Process new items
+      const errors: string[] = [];
+
+      // Process new items
       if (newItems.length > 0) {
         try {
-          // Create each new inventory item
-          for (const item of newItems) {
-            const newInventoryItem = {
-              item_name: item.item_name,
-              part_number: item.part_number || '',
-              description: item.description || '',
-              category: 'General', // Default category
-              unit_of_measure: item.unit_of_measure,
-              current_stock_level: item.quantity,
-              reorder_point: item.reorder_point || 0,
-              max_stock_level: null,
-              supplier_info: item.supplier || '',
-              cost_per_unit: item.estimated_cost || 0,
-              location: 'Main Warehouse', // Default location
-              program_id: 1, // Default program ID
-              created_by: 1, // Default user ID for now
-            };
+          const itemsToAdd = newItems.map((item) => ({
+            item_name: item.item_name,
+            part_number: item.part_number || "",
+            description: item.description || "",
+            unit_of_measure: item.unit_of_measure,
+            reorder_point: item.reorder_point || 0,
+            estimated_cost: item.estimated_cost || 0,
+            supplier: item.supplier || "",
+            notes: item.notes || "",
+          }));
 
-            await createInventoryItem(newInventoryItem);
-          }
-
-          console.log('Successfully created new inventory items:', newItems.length);
+          const result = await bulkAddInventoryItems(itemsToAdd);
+          console.log("Successfully added items to inventory:", result);
         } catch (error) {
           allSuccessful = false;
-          console.error('New items creation error:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          errors.push(`Failed to create ${newItems.length} new items: ${errorMessage}`);
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          errors.push(
+            `Failed to add ${newItems.length} new items: ${errorMessage}`
+          );
+          console.error("Bulk add inventory error:", error);
         }
       }
 
@@ -131,24 +110,25 @@ const CartDrawer: React.FC = () => {
             .filter((item) => item.inventory_item_id) // Only process items with valid IDs
             .map((item) => ({
               item_name: item.item_name,
-              part_number: item.part_number || '',
+              part_number: item.part_number || "",
               quantity_requested: item.quantity,
               unit_of_measure: item.unit_of_measure,
-              supplier: item.supplier || '',
+              supplier: item.supplier || "",
               estimated_cost: item.estimated_cost || 0,
-              notes: item.notes || 'Bulk reorder request',
+              notes: item.notes || "Bulk reorder request",
               inventory_item_id: item.inventory_item_id!,
-              requested_by: currentUser.displayName || 'Unknown User',
+              requested_by: currentUser.displayName || "Unknown User",
             }));
 
           await createPendingOrders(pendingOrderItems);
-          console.log('Created pending orders for:', pendingOrderItems);
+          console.log("Created pending orders for:", pendingOrderItems);
         } catch (error) {
           allSuccessful = false;
-          console.error('Pending orders creation error:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error("Pending orders creation error:", error);
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
           errors.push(
-            `Failed to create pending orders for ${reorderItems.length} items: ${errorMessage}`,
+            `Failed to create pending orders for ${reorderItems.length} items: ${errorMessage}`
           );
         }
       }
@@ -160,24 +140,30 @@ const CartDrawer: React.FC = () => {
             inventory_item_id: item.inventory_item_id!,
             quantity_changed: item.quantity,
             transaction_type:
-              item.adjustment_type === 'add' ? ('add' as const) : ('subtract' as const),
-            user_name: 'Current User', // TODO: Get from auth context
-            notes: item.adjustment_reason || item.notes || 'Bulk adjustment',
+              item.adjustment_type === "add"
+                ? ("add" as const)
+                : ("subtract" as const),
+            user_name: "Current User", // TODO: Get from auth context
+            notes: item.adjustment_reason || item.notes || "Bulk adjustment",
           }));
 
-          await bulkAdjustInventoryStock(adjustments);
-          console.log('Successfully processed adjustments:', adjustments.length);
+          const result = await bulkAdjustInventoryStock(adjustments);
+          console.log("Successfully processed adjustments:", result);
         } catch (error) {
           allSuccessful = false;
-          console.error('Adjustment processing error:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          errors.push(`Failed to process ${adjustmentItems.length} adjustments: ${errorMessage}`);
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          errors.push(
+            `Failed to process ${adjustmentItems.length} adjustments: ${errorMessage}`
+          );
+          console.error("Bulk adjustment error:", error);
         }
       }
 
       if (allSuccessful) {
-        let successMsg = 'Successfully processed all items! ';
-        if (newItems.length > 0) successMsg += `${newItems.length} new items added to inventory. `;
+        let successMsg = "Successfully processed all items! ";
+        if (newItems.length > 0)
+          successMsg += `${newItems.length} new items added to inventory. `;
         if (reorderItems.length > 0)
           successMsg += `${reorderItems.length} reorder requests sent to pending orders. `;
         if (adjustmentItems.length > 0)
@@ -186,11 +172,11 @@ const CartDrawer: React.FC = () => {
         setSubmitResult(successMsg);
         clearCart();
       } else {
-        setSubmitResult(`Completed with errors: ${errors.join(', ')}`);
+        setSubmitResult(`Completed with errors: ${errors.join(", ")}`);
       }
     } catch (error) {
-      setSubmitResult('Error submitting items. Please try again.');
-      console.error('Bulk submission error:', error);
+      setSubmitResult("Error submitting items. Please try again.");
+      console.error("Bulk submission error:", error);
     } finally {
       setIsSubmitting(false);
     }
@@ -199,59 +185,70 @@ const CartDrawer: React.FC = () => {
   const CartItemRow: React.FC<{ item: CartItem }> = ({ item }) => (
     <ListItem
       sx={{
-        flexDirection: 'column',
-        alignItems: 'stretch',
+        flexDirection: "column",
+        alignItems: "stretch",
         border: `1px solid ${theme.palette.divider}`,
         borderRadius: 1,
         mb: 1,
         backgroundColor: alpha(theme.palette.background.paper, 0.8),
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', width: '100%', mb: 1 }}>
+      <Box
+        sx={{ display: "flex", alignItems: "flex-start", width: "100%", mb: 1 }}
+      >
         <Box sx={{ flex: 1 }}>
           <Typography variant="subtitle2" fontWeight={600}>
             {cartHelpers.getItemDisplayName(item)}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
             <Chip
               label={
-                item.type === 'new'
-                  ? 'New Item'
-                  : item.type === 'reorder'
-                  ? 'Reorder'
-                  : `${item.adjustment_type === 'add' ? 'Add' : 'Remove'} Stock`
+                item.type === "new"
+                  ? "New Item"
+                  : item.type === "reorder"
+                  ? "Reorder"
+                  : `${item.adjustment_type === "add" ? "Add" : "Remove"} Stock`
               }
               color={
-                item.type === 'new'
-                  ? 'primary'
-                  : item.type === 'reorder'
-                  ? 'secondary'
-                  : item.adjustment_type === 'add'
-                  ? 'success'
-                  : 'error'
+                item.type === "new"
+                  ? "primary"
+                  : item.type === "reorder"
+                  ? "secondary"
+                  : item.adjustment_type === "add"
+                  ? "success"
+                  : "error"
               }
               size="small"
             />
-            <Chip label={item.unit_of_measure} variant="outlined" size="small" />
+            <Chip
+              label={item.unit_of_measure}
+              variant="outlined"
+              size="small"
+            />
           </Box>
           {item.description && (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               {item.description}
             </Typography>
           )}
-          {item.type === 'reorder' && item.current_stock_level !== undefined && (
-            <Typography variant="caption" color="text.secondary">
-              Current Stock: {item.current_stock_level}
-            </Typography>
-          )}
+          {item.type === "reorder" &&
+            item.current_stock_level !== undefined && (
+              <Typography variant="caption" color="text.secondary">
+                Current Stock: {item.current_stock_level}
+              </Typography>
+            )}
         </Box>
-        <IconButton onClick={() => removeItem(item.id)} size="small" color="error">
+        <IconButton
+          onClick={() => removeItem(item.id)}
+          size="small"
+          color="error"
+        >
           <DeleteIcon fontSize="small" />
         </IconButton>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <IconButton
             size="small"
             onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
@@ -263,11 +260,16 @@ const CartDrawer: React.FC = () => {
             size="small"
             type="number"
             value={item.quantity}
-            onChange={(e) => handleQuantityChange(item.id, parseInt(e.target.value) || 0)}
+            onChange={(e) =>
+              handleQuantityChange(item.id, parseInt(e.target.value) || 0)
+            }
             sx={{ width: 80 }}
-            inputProps={{ min: 1, style: { textAlign: 'center' } }}
+            inputProps={{ min: 1, style: { textAlign: "center" } }}
           />
-          <IconButton size="small" onClick={() => handleQuantityChange(item.id, item.quantity + 1)}>
+          <IconButton
+            size="small"
+            onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+          >
             <AddIcon fontSize="small" />
           </IconButton>
         </Box>
@@ -276,7 +278,7 @@ const CartDrawer: React.FC = () => {
           size="small"
           label="Est. Cost"
           type="number"
-          value={item.estimated_cost || ''}
+          value={item.estimated_cost || ""}
           onChange={(e) => handleCostChange(item.id, e.target.value)}
           sx={{ width: 100 }}
           inputProps={{ min: 0, step: 0.01 }}
@@ -286,7 +288,9 @@ const CartDrawer: React.FC = () => {
         />
 
         <Typography variant="body2" fontWeight={500}>
-          {cartHelpers.formatCurrency((item.estimated_cost || 0) * item.quantity)}
+          {cartHelpers.formatCurrency(
+            (item.estimated_cost || 0) * item.quantity
+          )}
         </Typography>
       </Box>
     </ListItem>
@@ -299,15 +303,17 @@ const CartDrawer: React.FC = () => {
       onClose={closeCart}
       PaperProps={{
         sx: {
-          width: { xs: '100%', sm: 450 },
-          maxWidth: '100vw',
+          width: { xs: "100%", sm: 450 },
+          maxWidth: "100vw",
         },
       }}
     >
-      <Box sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box
+        sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column" }}
+      >
         {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <CartIcon sx={{ mr: 1, color: 'primary.main' }} />
+        <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+          <CartIcon sx={{ mr: 1, color: "primary.main" }} />
           <Typography variant="h6" sx={{ flex: 1 }}>
             Inventory Cart
           </Typography>
@@ -329,15 +335,19 @@ const CartDrawer: React.FC = () => {
             <Typography variant="subtitle2" gutterBottom>
               Cart Summary
             </Typography>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}
+            >
               <Typography variant="body2">Items:</Typography>
               <Typography variant="body2">{summary.totalItems}</Typography>
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}
+            >
               <Typography variant="body2">Total Quantity:</Typography>
               <Typography variant="body2">{summary.totalQuantity}</Typography>
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
               <Typography variant="body2" fontWeight={600}>
                 Estimated Total:
               </Typography>
@@ -349,17 +359,17 @@ const CartDrawer: React.FC = () => {
         )}
 
         {/* Items List */}
-        <Box sx={{ flex: 1, overflow: 'auto' }}>
+        <Box sx={{ flex: 1, overflow: "auto" }}>
           {items.length === 0 ? (
             <Box
               sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                textAlign: 'center',
-                color: 'text.secondary',
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100%",
+                textAlign: "center",
+                color: "text.secondary",
               }}
             >
               <CartIcon sx={{ fontSize: 64, mb: 2, opacity: 0.3 }} />
@@ -386,7 +396,7 @@ const CartDrawer: React.FC = () => {
 
             {submitResult && (
               <Alert
-                severity={submitResult.includes('Error') ? 'error' : 'success'}
+                severity={submitResult.includes("Error") ? "error" : "success"}
                 sx={{ mb: 2 }}
                 onClose={() => setSubmitResult(null)}
               >
@@ -394,7 +404,7 @@ const CartDrawer: React.FC = () => {
               </Alert>
             )}
 
-            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
               <Button
                 variant="outlined"
                 onClick={clearCart}
@@ -407,20 +417,26 @@ const CartDrawer: React.FC = () => {
                 variant="contained"
                 onClick={handleBulkSubmit}
                 disabled={isSubmitting}
-                startIcon={isSubmitting ? <CircularProgress size={16} /> : <ReceiptIcon />}
+                startIcon={
+                  isSubmitting ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <ReceiptIcon />
+                  )
+                }
                 sx={{ flex: 2 }}
               >
-                {isSubmitting ? 'Submitting...' : 'Submit All Items'}
+                {isSubmitting ? "Submitting..." : "Submit All Items"}
               </Button>
             </Box>
 
             <Typography
               variant="caption"
               color="text.secondary"
-              sx={{ textAlign: 'center', display: 'block' }}
+              sx={{ textAlign: "center", display: "block" }}
             >
-              {summary.newItemsCount} new items • {summary.reorderItemsCount} reorders •{' '}
-              {summary.adjustmentItemsCount} adjustments
+              {summary.newItemsCount} new items • {summary.reorderItemsCount}{" "}
+              reorders • {summary.adjustmentItemsCount} adjustments
             </Typography>
           </Box>
         )}

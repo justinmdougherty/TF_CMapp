@@ -51,7 +51,7 @@ import {
   deletePendingOrder,
   updatePendingOrderStatus,
 } from '../../services/api';
-import { PendingOrderStatus } from '../../types/PendingOrders';
+import { PendingOrderStatus, PendingOrderHeader } from '../../types/PendingOrders';
 import { notifications } from '../../services/notificationService';
 import certificateService from '../../services/certificateService';
 
@@ -134,15 +134,20 @@ const PendingOrdersPage = () => {
   // Filter orders by status and search term
   const getFilteredOrders = (status?: PendingOrderStatus) => {
     let filtered = status
-      ? pendingOrders.filter((order) => order.status === status)
+      ? pendingOrders.filter((order) => {
+          // Map API status to expected status
+          const orderStatus = order.status.toLowerCase();
+          if (status === 'requested') return orderStatus === 'pending';
+          return orderStatus === status;
+        })
       : pendingOrders;
 
     if (searchTerm) {
       filtered = filtered.filter(
         (order) =>
-          order.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          order.part_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          order.supplier?.toLowerCase().includes(searchTerm.toLowerCase()),
+          order.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          order.project_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          order.supplier_info?.toLowerCase().includes(searchTerm.toLowerCase()),
       );
     }
 
@@ -191,29 +196,29 @@ const PendingOrdersPage = () => {
     switch (status) {
       case 'requested':
         return {
-          person: order.requested_by,
-          date: order.date_requested,
+          person: order.user_name,
+          date: order.date_created,
         };
       case 'ordered':
         return {
-          person: order.ordered_by || 'N/A',
+          person: order.user_name || 'N/A',
           date: order.date_ordered || 'N/A',
         };
       case 'shipped':
         return {
-          person: order.shipped_by || 'N/A',
-          date: order.date_shipped || 'N/A',
+          person: 'N/A',
+          date: 'N/A',
         };
       case 'partial':
       case 'received':
         return {
-          person: order.received_by || 'N/A',
-          date: order.date_received || 'N/A',
+          person: 'N/A',
+          date: order.actual_delivery_date || 'N/A',
         };
       default:
         return {
-          person: order.requested_by,
-          date: order.date_requested,
+          person: order.user_name,
+          date: order.date_created,
         };
     }
   };
@@ -224,9 +229,11 @@ const PendingOrdersPage = () => {
 
     // Validate that all partial receipts have reasons
     const itemsToReceive = Array.from(selectedItems).map((id) => {
-      const order = pendingOrders.find((o) => o.pending_order_id === id);
+      const order = pendingOrders.find((o) => o.order_id === id);
       const receivedQty = receivingItems[id] || 0;
-      const isPartial = receivedQty < (order?.quantity_requested || 0);
+      // Note: For order headers, we'll need to determine if it's partial differently
+      // This would need to be handled with individual items from the order header
+      const isPartial = receivedQty < (order?.total_items || 0);
 
       return {
         pending_order_id: id,
@@ -422,13 +429,13 @@ const PendingOrdersPage = () => {
                           setSelectedItems(new Set());
                         } else {
                           setSelectedItems(
-                            new Set(currentTabOrders.map((order) => order.pending_order_id)),
+                            new Set(currentTabOrders.map((order) => order.order_id)),
                           );
                         }
                       }}
                     />
                   </TableCell>
-                  <TableCell>Item</TableCell>
+                  <TableCell>Order</TableCell>
                   <TableCell>Supplier</TableCell>
                   <TableCell>Qty Requested</TableCell>
                   <TableCell>Qty Received</TableCell>
@@ -440,46 +447,47 @@ const PendingOrdersPage = () => {
               </TableHead>
               <TableBody>
                 {currentTabOrders.map((order) => (
-                  <TableRow key={order.pending_order_id}>
+                  <TableRow key={order.order_id}>
                     <TableCell padding="checkbox">
                       <Checkbox
-                        checked={selectedItems.has(order.pending_order_id)}
-                        onChange={() => toggleItemSelection(order.pending_order_id)}
+                        checked={selectedItems.has(order.order_id)}
+                        onChange={() => toggleItemSelection(order.order_id)}
                       />
                     </TableCell>
                     <TableCell>
                       <Box>
                         <Typography variant="body2" fontWeight="bold">
-                          {order.item_name}
+                          {order.order_number}
                         </Typography>
-                        {order.part_number && (
+                        {order.project_name && (
                           <Typography variant="caption" color="text.secondary">
-                            {order.part_number}
+                            {order.project_name}
                           </Typography>
                         )}
                       </Box>
                     </TableCell>
-                    <TableCell>{order.supplier || 'N/A'}</TableCell>
+                    <TableCell>{order.supplier_info || 'N/A'}</TableCell>
+                    <TableCell>{order.total_items}</TableCell>
+                    <TableCell>N/A</TableCell>
                     <TableCell>
-                      {order.quantity_requested} {order.unit_of_measure}
-                    </TableCell>
-                    <TableCell>
-                      {order.quantity_received} {order.unit_of_measure}
-                    </TableCell>
-                    <TableCell>
-                      {order.estimated_cost ? `$${order.estimated_cost.toFixed(2)}` : 'N/A'}
+                      {order.total_estimated_cost
+                        ? `$${order.total_estimated_cost.toFixed(2)}`
+                        : 'N/A'}
                     </TableCell>
                     <TableCell>
                       <Chip
-                        icon={getStatusIcon(order.status)}
+                        icon={getStatusIcon(order.status.toLowerCase() as PendingOrderStatus)}
                         label={order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                        color={getStatusColor(order.status)}
+                        color={getStatusColor(order.status.toLowerCase() as PendingOrderStatus)}
                         size="small"
                       />
                     </TableCell>
                     <TableCell>
                       {(() => {
-                        const statusInfo = getStatusPersonAndDate(order, order.status);
+                        const statusInfo = getStatusPersonAndDate(
+                          order,
+                          order.status.toLowerCase() as PendingOrderStatus,
+                        );
                         return (
                           <Box>
                             <Typography variant="body2" fontWeight="bold">
@@ -524,7 +532,7 @@ const PendingOrdersPage = () => {
                           <IconButton
                             size="small"
                             color="error"
-                            onClick={() => deleteMutation.mutate(order.pending_order_id)}
+                            onClick={() => deleteMutation.mutate(order.order_id)}
                           >
                             <DeleteIcon />
                           </IconButton>
@@ -551,77 +559,90 @@ const PendingOrdersPage = () => {
       <Dialog
         open={receiveDialogOpen}
         onClose={() => setReceiveDialogOpen(false)}
-        maxWidth="md"
+        maxWidth="lg"
         fullWidth
       >
         <DialogTitle>Receive Items</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            Enter the quantity received for each selected item:
+          <Typography variant="body2" sx={{ mb: 3 }}>
+            Enter the quantity received for each selected order:
           </Typography>
           {Array.from(selectedItems).map((id) => {
-            const order = pendingOrders.find((o) => o.pending_order_id === id);
+            const order = pendingOrders.find((o) => o.order_id === id);
             if (!order) return null;
 
-            const receivedQty = receivingItems[id] || 0;
-            const isPartial = receivedQty > 0 && receivedQty < order.quantity_requested;
+            const receivedQty =
+              receivingItems[id] !== undefined ? receivingItems[id] : order.total_items;
+            const isPartial = receivedQty > 0 && receivedQty < order.total_items;
 
             return (
               <Box
                 key={id}
-                sx={{ mb: 2, p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}
+                sx={{
+                  mb: 3,
+                  p: 3,
+                  border: 1,
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  backgroundColor: 'background.paper',
+                }}
               >
-                <Typography variant="subtitle2">{order.item_name}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Requested: {order.quantity_requested} {order.unit_of_measure}
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Order #{order.order_number}
                 </Typography>
-                <TextField
-                  label="Quantity Received"
-                  type="number"
-                  value={receivingItems[id] || ''}
-                  onChange={(e) =>
-                    setReceivingItems((prev) => ({
-                      ...prev,
-                      [id]: parseInt(e.target.value) || 0,
-                    }))
-                  }
-                  inputProps={{ min: 0, max: order.quantity_requested }}
-                  sx={{ mt: 1, mr: 1 }}
-                  size="small"
-                />
-
-                {isPartial && (
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+                  Quantity Requested: {order.total_items}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                   <TextField
-                    label="Reason for Partial Receipt"
-                    multiline
-                    rows={2}
-                    value={partialReasons[id] || ''}
+                    label="Qty Received"
+                    type="number"
+                    value={
+                      receivingItems[id] !== undefined ? receivingItems[id] : order.total_items
+                    }
                     onChange={(e) =>
-                      setPartialReasons((prev) => ({
+                      setReceivingItems((prev) => ({
                         ...prev,
-                        [id]: e.target.value,
+                        [id]: parseInt(e.target.value) || 0,
                       }))
                     }
-                    placeholder="e.g., Supplier delay, damaged items, backordered..."
-                    sx={{ mt: 1, width: '100%' }}
-                    size="small"
-                    required
-                    error={receivedQty > 0 && !partialReasons[id]?.trim()}
-                    helperText={
-                      receivedQty > 0 && !partialReasons[id]?.trim()
-                        ? 'Reason required for partial receipts'
-                        : ''
-                    }
+                    inputProps={{ min: 0, max: order.total_items }}
+                    sx={{ minWidth: 200 }}
+                    size="medium"
                   />
-                )}
+                  {isPartial && (
+                    <TextField
+                      label="Reason for Partial Receipt"
+                      multiline
+                      rows={3}
+                      value={partialReasons[id] || ''}
+                      onChange={(e) =>
+                        setPartialReasons((prev) => ({
+                          ...prev,
+                          [id]: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g., Supplier delay, damaged items, backordered..."
+                      sx={{ flex: 1, minWidth: 300 }}
+                      size="medium"
+                      required
+                      error={receivedQty > 0 && !partialReasons[id]?.trim()}
+                      helperText={
+                        receivedQty > 0 && !partialReasons[id]?.trim()
+                          ? 'Reason required for partial receipts'
+                          : ''
+                      }
+                    />
+                  )}
+                </Box>
 
                 {isPartial && (
                   <Typography
                     variant="caption"
                     color="warning.main"
-                    sx={{ display: 'block', mt: 1 }}
+                    sx={{ display: 'block', mt: 2 }}
                   >
-                    ⚠️ Partial receipt: Item will remain in pending orders
+                    ⚠️ Partial receipt: Remaining quantity will stay in pending orders
                   </Typography>
                 )}
               </Box>

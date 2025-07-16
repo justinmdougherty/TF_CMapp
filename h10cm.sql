@@ -1816,7 +1816,7 @@ BEGIN
         o.date_ordered,
         o.expected_delivery_date,
         o.actual_delivery_date,
-        COUNT(oi.order_item_id) as total_items
+        SUM(oi.quantity_ordered) as total_items
     FROM PendingOrders o
     LEFT JOIN Users u ON o.user_id = u.user_id
     LEFT JOIN Projects p ON o.project_id = p.project_id

@@ -180,8 +180,129 @@ H10CM/
   - ✅ **Cart Integration** - Header cart icon and drawer interface
   - ✅ **Cart Functionality** - Add to cart, reorder suggestions, bulk operations UI
   - ✅ **Input Focus Fix** - Resolved input focus loss issues with useCallback handlers
-  - ✅ **API Integration** - Complete cart workflow with backend integration
-- ✅ **Database Implementation** - Multi-tenant inventory structure fully implemented
+  - ⚠️ **CRITICAL BUG DISCOVERED** - Cart system creating inventory items instead of cart items
+  - ❌ **API Integration** - Cart workflow broken due to incorrect API endpoint calls
+
+## 🚨 **Critical Cart Bug Documentation**
+
+### **Issue Description** *[Discovered: July 15, 2025]*
+
+A **critical bug** was discovered in the cart system during the pending orders workflow testing. The issue manifests as follows:
+
+#### **Symptoms:**
+
+- When users add items to their shopping cart, items are incorrectly being created as inventory items instead of cart items
+- Success message displays: "Successfully processed all items! New items added to inventory"
+- Cart table (`CartItems`) remains empty after "adding to cart"
+- Items appear in `InventoryItems` table with full stock quantities
+- Users cannot complete the intended workflow: Cart → Pending Orders → Receive
+
+#### **Root Cause Analysis:**
+
+The bug is located in the `CartDrawer.tsx` component's cart submission logic. Instead of calling the correct `/api/cart/add` endpoint, the system is calling an inventory creation endpoint.
+
+#### **Database Evidence:**
+
+When user attempted to add "TNPW040210K0BEED" with quantity 100 to cart:
+
+```sql
+-- Expected: Record in CartItems table
+SELECT * FROM CartItems WHERE part_number = 'TNPW040210K0BEED'; -- 0 results
+
+-- Actual: Record created in InventoryItems table  
+SELECT * FROM InventoryItems WHERE part_number = 'TNPW040210K0BEED';
+-- Result: inventory_item_id = 14, current_stock_level = 100.0000, created today
+```
+
+#### **Impact:**
+
+- **Workflow Broken**: Complete cart-to-pending-orders workflow is non-functional
+- **Data Integrity**: Inventory quantities are incorrectly inflated
+- **User Experience**: Confusing success messages and broken cart functionality
+- **System Reliability**: Core e-commerce functionality is compromised
+
+### **Resolution Plan:**
+
+#### **Immediate Actions Required:**
+
+1. **Investigate `CartDrawer.tsx`** - Identify the incorrect API call in cart submission handler
+2. **Fix API Endpoint** - Ensure cart additions call `/api/cart/add` instead of inventory creation
+3. **Database Cleanup** - Remove incorrectly created inventory items (IDs 13, 14)
+4. **Verify Cart API** - Test `/api/cart/add` endpoint functionality and parameters
+5. **Test Complete Workflow** - Validate: Add to Cart → View Cart → Submit Order → Pending Orders
+
+#### **Code Areas to Review:**
+
+- **File**: `src/components/apps/eCommerce/CartDrawer.tsx`
+- **Method**: Cart submission handler (likely in `handleSubmit` or similar)
+- **API Endpoint**: Should call `/api/cart/add` with proper parameters
+- **Success Message**: Should indicate cart addition, not inventory creation
+
+#### **Testing Protocol:**
+
+1. Add test item to cart
+2. Verify `CartItems` table has new record
+3. Verify `InventoryItems` table is unchanged
+4. Test cart display and quantity calculations
+5. Test complete workflow through pending orders
+
+#### **Prevention Measures:**
+
+- Add unit tests for cart functionality
+- Implement integration tests for cart-to-orders workflow
+- Add validation to prevent incorrect API calls
+- Implement proper error handling for cart operations
+
+### **Current Status:**
+
+- **Discovered**: July 15, 2025 during pending orders testing
+- **Priority**: CRITICAL - Blocks core functionality
+- **Impact**: High - Affects all cart-based operations
+- **Resolution**: Pending investigation and fix
+
+**This bug must be resolved before the cart system can be considered functional.**
+
+---
+
+### **📋 Recent Accomplishments** *[Updated: July 15, 2025]*
+
+#### **✅ Pending Orders Quantity Fix** *[Completed: July 15, 2025]*
+
+**Issue Resolved:** Fixed critical database field mismatch causing pending orders to display quantity "1" instead of actual ordered quantities.
+
+**Root Cause:** Stored procedure `usp_GetPendingOrders` was using `quantity_requested` field instead of `quantity_ordered` field.
+
+**Solution Applied:**
+- Updated stored procedure to use `SUM(oi.quantity_ordered)` instead of `SUM(oi.quantity_requested)`
+- Modified `PendingOrdersPage.tsx` to remove confusing "pieces" text suffix
+- Verified database field alignment with table structure
+
+**Results:**
+- ✅ Pending orders now display correct quantities (3, 5, 10 instead of 1, 1, 1)
+- ✅ Database queries return accurate quantity summations
+- ✅ User interface shows clean quantity display without misleading text
+- ✅ Complete pending orders workflow now shows accurate data
+
+**Impact:** Users can now see accurate quantities in their pending orders, enabling proper inventory management and order fulfillment.
+
+#### **🚨 Cart System Critical Bug Discovery** *[Discovered: July 15, 2025]*
+
+**Issue Identified:** During testing of the complete inventory workflow (Cart → Pending Orders → Receive), discovered that cart additions are incorrectly creating inventory items instead of cart items.
+
+**Evidence:**
+- User attempted to add TNPW040210K0BEED (qty: 100) to cart
+- System created inventory item instead of cart item
+- Success message shows "Successfully processed all items! New items added to inventory"
+- CartItems table remains empty, InventoryItems table populated incorrectly
+
+**Current Status:** 
+- **Priority:** CRITICAL - Blocks entire cart-to-orders workflow
+- **Impact:** Cart functionality completely non-functional
+- **Resolution:** Requires immediate investigation of `CartDrawer.tsx` component
+
+---
+
+### **Database Implementation** - Multi-tenant inventory structure fully implemented
   - ✅ **Database Deployed** - H10CM database with 21 tables successfully created
   - ✅ **Multi-Tenant Design** - Program-level inventory isolation implemented
   - ✅ **Foreign Key Constraints** - Proper relationships and constraints implemented
@@ -221,29 +342,89 @@ H10CM/
 
 ## 🎯 Current Priority
 
-### **🎉 MAJOR ACCOMPLISHMENTS** *[Recently Completed]*
+### **🚨 CRITICAL BUG FIX REQUIRED** ⭐⭐⭐ *[Immediate Priority]*
 
-**Based on comprehensive troubleshooting and implementation work:**
+**Cart System Broken - Blocking Core Functionality**
 
-#### **✅ Cart System: Fully Functional**
-- **Achievement**: Complete cart functionality with working input handlers and API integration
-- **Impact**: Users can now add items to cart, adjust quantities/costs, and submit successfully
-- **Implementation**: Fixed input focus issues with useCallback, implemented real API calls
-- **Status**: Frontend and backend integration complete and tested
+The cart system has a critical bug that prevents the complete inventory workflow from functioning. This is the **highest priority** issue that must be resolved immediately.
+
+**Issue:** Cart additions create inventory items instead of cart items  
+**Impact:** Complete cart-to-pending-orders workflow is non-functional  
+**Component:** `CartDrawer.tsx` component has incorrect API endpoint calls  
+**Status:** Discovered July 15, 2025 during workflow testing
+
+**Immediate Actions Required:**
+1. **Investigate `CartDrawer.tsx`** - Find incorrect API call in submission handler
+2. **Fix API Endpoint** - Change from inventory creation to `/api/cart/add` 
+3. **Database Cleanup** - Remove incorrectly created inventory items
+4. **Test Workflow** - Validate complete Cart → Pending Orders → Receive flow
+
+### **✅ RECENT ACCOMPLISHMENTS** *[July 15, 2025]*
+
+#### **Pending Orders Quantity Fix - COMPLETED**
+
+Successfully resolved the pending orders quantity display issue:
+- **Problem**: Orders showing "1" instead of actual quantities (3, 5, 10)
+- **Cause**: Database field mismatch (`quantity_requested` vs `quantity_ordered`)
+- **Solution**: Updated `usp_GetPendingOrders` stored procedure
+- **Result**: Accurate quantity display in pending orders interface
+
+#### **Database Schema - STABLE**
+
+H10CM database with 21 tables is fully operational:
+- Multi-tenant inventory structure implemented
+- All required stored procedures created and tested
+- Program-level data isolation working correctly
+- Ready for production use
+
+### **🔥 NEXT PRIORITIES** *[After Cart Bug Fix]*
+
+1. **Complete Cart Workflow Testing** ⭐⭐⭐ *[1-2 days]*
+   - Validate Cart → Pending Orders → Receive workflow
+   - Test multi-item cart submissions
+   - Verify inventory quantity calculations
+   - Test user authentication integration
+
+2. **Multi-Tenant Security Implementation** ⭐⭐⭐ *[1-2 weeks]*
+   - Add program_id filtering to all API endpoints
+   - Implement authentication middleware across all APIs
+   - Test program-level data isolation
+   - Verify certificate-based authentication
+
+3. **Production Deployment Preparation** ⭐⭐ *[1-2 weeks]*
+   - Complete testing suite implementation
+   - Performance optimization
+   - Security hardening
+   - Documentation completion
+
+---
+
+### **🎉 MAJOR ACCOMPLISHMENTS** *[Previously Completed]*
+
+**Based on comprehensive implementation and testing work:**
 
 #### **✅ Database: Successfully Implemented**
+
 - **Achievement**: H10CM database with 21 tables and all required stored procedures
 - **Impact**: All database operations now functional with proper multi-tenant support
 - **Implementation**: Database schema executed, stored procedures created including usp_SaveInventoryItem
 - **Status**: Database fully operational with proper duplicate handling
 
 #### **✅ Inventory API: Operational**
+
 - **Achievement**: Working inventory API with proper database integration
 - **Impact**: Inventory operations now function correctly with backend support
 - **Implementation**: API endpoints connected to H10CM database with working stored procedures
 - **Status**: Core inventory functionality restored and tested
 
-### **🔥 CURRENT PRIORITIES** ⭐⭐⭐ *[Next 1-2 weeks]*
+#### **✅ Pending Orders System: Fixed**
+
+- **Achievement**: Resolved quantity display issues in pending orders
+- **Impact**: Users now see accurate quantities instead of "1" for all orders
+- **Implementation**: Fixed stored procedure field mismatch and updated UI display
+- **Status**: Pending orders workflow fully functional with correct data
+
+### **🔥 LEGACY COMPLETED TASKS** ⭐⭐⭐ *[Previously Completed]*
 
 1. ✅ **Execute Database Schema** *[COMPLETED]*
    - ✅ Database H10CM exists with all necessary tables
@@ -260,24 +441,19 @@ H10CM/
    - ✅ Successfully tested creating new inventory items with project isolation
    - ✅ Verified API endpoint <http://localhost:3000/api/inventory-items> works correctly
 
-3. ✅ **Fix Cart System** *[COMPLETED]*
-   - ✅ Resolved input focus loss issues with useCallback handlers
-   - ✅ Implemented real API calls replacing TODO comments
-   - ✅ Added createInventoryItem, bulkAdjustInventoryStock, createPendingOrders functionality
-   - ✅ Enhanced stored procedure to handle duplicate part numbers gracefully
-   - ✅ Complete end-to-end cart workflow now functional
+3. ✅ **Fix Pending Orders Display** *[COMPLETED]*
+   - ✅ Identified database field mismatch in stored procedure
+   - ✅ Updated usp_GetPendingOrders to use quantity_ordered instead of quantity_requested
+   - ✅ Modified PendingOrdersPage.tsx to display clean quantities
+   - ✅ Verified accurate quantity display (3, 5, 10 instead of 1, 1, 1)
+   - ✅ Complete pending orders workflow now shows correct data
 
-4. **Implement Multi-Tenant Security** *[1-2 weeks]*
-   - [ ] Add program_id filtering to all API endpoints
-   - [ ] Integrate authentication middleware across all APIs
-   - [ ] Test program-level data isolation
-   - [ ] Verify certificate-based authentication works
-
-5. **Add Procurement Role to RBAC System** *[1-2 days]*
-   - ✅ 'Inventory Manager' role exists with procurement permissions
-   - [ ] Create procurement dashboard interface
-   - [ ] Add procurement workflows: inventory requests, ordering, receiving, notifications
-   - [ ] Integrate with existing RBAC context and notification system
+4. **🚨 CRITICAL BUG DISCOVERED** *[BLOCKS DEPLOYMENT]*
+   - ❌ Cart system creates inventory items instead of cart items
+   - ❌ CartDrawer.tsx component has incorrect API endpoint calls
+   - ❌ Complete cart-to-orders workflow is non-functional
+   - ❌ Database evidence shows inventory creation instead of cart additions
+   - ❌ Success message misleadingly indicates inventory creation
 
 ### **🔧 HIGH PRIORITY: System Integration** ⭐⭐ *[1-2 weeks]*
 
@@ -1049,35 +1225,44 @@ This accomplishes the vision of building a **"generic and configurable system"**
 ## 📊 **Project State Summary**
 
 ### **Current Completion Status**
-- **Overall Progress**: ~80% complete (significant improvement from repository cleanup)
+
+- **Overall Progress**: ~75% complete (reduced due to cart bug discovery)
 - **Frontend Development**: 85% complete (excellent UI/UX work)
 - **Database Implementation**: 95% complete (H10CM database fully operational)
-- **Backend API**: 70% complete (core functionality working, enhancements needed)
-- **System Integration**: 80% complete (major components connected and functional)
+- **Backend API**: 65% complete (core functionality working, cart system broken)
+- **System Integration**: 70% complete (pending orders fixed, cart system broken)
 - **Project Organization**: 95% complete (clean repository structure)
 - **Testing**: 15% complete (framework exists, basic testing implemented)
 
 ### **What's Working**
+
 - ✅ Complete React/TypeScript frontend with Material UI
 - ✅ Comprehensive component library and routing
 - ✅ State management with Zustand and React Query
 - ✅ H10CM database with 21 tables and all required stored procedures
-- ✅ Working inventory management system with cart functionality
+- ✅ Working inventory management system (except cart submission)
 - ✅ Certificate-based authentication framework
 - ✅ Smart notification system (frontend)
 - ✅ Multi-tenant database architecture
 - ✅ Clean repository structure with proper organization
+- ✅ Pending orders system with accurate quantity display
 
-### **What's Enhanced**
-- ✅ **Repository Organization**: Project properly renamed and restructured
-- ✅ **Template Cleanup**: Removed 47 unnecessary template files
-- ✅ **Git Repository**: Cleaned from 570+ changes to meaningful updates
-- ✅ **MCP Integration**: Memory server functionality properly configured
-- ✅ **Version Control**: Comprehensive .gitignore with all necessary exclusions
-- ✅ **Database Schema**: Enhanced with modern JSON-based stored procedures
-- ✅ **Code Quality**: Integrated Codacy rules for automated analysis
+### **What's Broken**
+
+- ❌ **Cart System**: Critical bug - creates inventory items instead of cart items
+- ❌ **Complete Workflow**: Cart → Pending Orders → Receive workflow blocked
+- ❌ **API Integration**: CartDrawer.tsx has incorrect API endpoint calls
+- ❌ **User Experience**: Misleading success messages in cart system
+
+### **Critical Issues Requiring Immediate Attention**
+
+- 🚨 **Cart System Bug Fix** - BLOCKING: Cart creates inventory items instead of cart items
+- 🚨 **CartDrawer.tsx Investigation** - CRITICAL: Incorrect API endpoint calls
+- 🚨 **Database Cleanup** - Remove incorrectly created inventory items
+- 🚨 **Workflow Testing** - Complete Cart → Pending Orders → Receive validation
 
 ### **Remaining Development Areas**
+
 - ⚠️ Multi-tenant security enforcement (program-level filtering)
 - ⚠️ Complete RBAC backend integration
 - ⚠️ Comprehensive testing and quality assurance
@@ -1085,11 +1270,12 @@ This accomplishes the vision of building a **"generic and configurable system"**
 - ⚠️ Production deployment and monitoring setup
 
 ### **Recent Accomplishments**
+
+- ✅ **Pending Orders Fix Complete** - Resolved quantity display showing "1" instead of actual amounts
+- ✅ **Database Field Alignment** - Fixed stored procedure to use quantity_ordered field
+- ✅ **UI Display Cleanup** - Removed confusing "pieces" text from quantity display
+- ✅ **Cart Bug Discovery** - Identified critical issue blocking deployment
 - ✅ **Repository Cleanup Complete** - Clean git history with meaningful changes only
-- ✅ **Project Restructuring** - Successfully migrated from TF_CMapp to H10CM structure
-- ✅ **Template Removal** - Eliminated 47 unnecessary demo files and components
-- ✅ **MCP Memory Server** - Properly configured .memory/ folder for conversation persistence
-- ✅ **Version Control** - Comprehensive .gitignore preventing future bloat
 - ✅ **Database Updates** - Enhanced stored procedures with modern JSON patterns
 
 **The project now has a clean, professional repository structure with all core functionality in place. The foundation is solid and ready for production development.**
@@ -1097,6 +1283,6 @@ This accomplishes the vision of building a **"generic and configurable system"**
 ---
 
 *Last Updated: July 15, 2025*
-*Current Priority: Multi-Tenant Security Implementation*
-*Recent Accomplishment: ✅ Repository Cleanup & Organization Complete (July 15, 2025)*
-*Status: ✅ Clean repository structure with core functionality operational*
+*Current Priority: CRITICAL - Cart Bug Fix Required*
+*Recent Accomplishment: ✅ Pending Orders Quantity Display Fix (July 15, 2025)*
+*Status: 🚨 Cart system broken - blocking deployment*

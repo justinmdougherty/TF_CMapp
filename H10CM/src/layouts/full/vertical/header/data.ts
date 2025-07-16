@@ -1,7 +1,8 @@
-import img1 from 'src/assets/images/profile/user-1.jpg';
-import img2 from 'src/assets/images/profile/user-2.jpg';
-import img3 from 'src/assets/images/profile/user-3.jpg';
-import img4 from 'src/assets/images/profile/user-4.jpg';
+// Using placeholder image URLs for profile images
+const img1 = 'https://via.placeholder.com/40x40?text=U1';
+const img2 = 'https://via.placeholder.com/40x40?text=U2';
+const img3 = 'https://via.placeholder.com/40x40?text=U3';
+const img4 = 'https://via.placeholder.com/40x40?text=U4';
 
 import icon3 from 'src/assets/images/svgs/icon-tasks.svg'
 

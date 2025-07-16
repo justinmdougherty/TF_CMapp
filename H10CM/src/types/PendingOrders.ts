@@ -47,3 +47,22 @@ export interface ReceiveItemsRequest {
   }[];
   received_by?: string;
 }
+
+export interface PendingOrderHeader {
+  order_id: number;
+  order_number: string;
+  user_id: number;
+  user_name: string;
+  project_id: number;
+  project_name: string;
+  status: string;
+  total_estimated_cost: number;
+  supplier_info: string;
+  order_notes: string;
+  date_created: string;
+  date_approved?: string;
+  date_ordered?: string;
+  expected_delivery_date?: string;
+  actual_delivery_date?: string;
+  total_items: number;
+}
