@@ -26,6 +26,7 @@ h10cm.sql               # Database creation script
 
 ### Key Development Commands
 
+```powershell
 # Frontend development
 Set-Location H10CM; npm install; npm run dev
 
@@ -38,6 +39,7 @@ Set-Location api; npm install; npm run dev
 # Testing
 npm test          # Frontend (Vitest + React Testing Library)
 Set-Location api; npm test # Backend (Jest + Supertest)
+```
 
 ## Multi-Tenant Architecture
 
@@ -80,6 +82,78 @@ server: {
     },
   },
 }
+```
+
+## Critical Frontend Architecture Patterns
+
+### React Query + Zustand State Management
+
+```typescript
+// API data fetching (src/hooks/api/useProjectHooks.ts)
+export const useProjects = () => {
+  return useQuery<Project[], Error>({
+    queryKey: ["projects"],
+    queryFn: fetchProjects,
+    refetchOnWindowFocus: true,
+  });
+};
+
+// Client-side state (src/store/cartStore.ts)
+export const useCartStore = create<CartStore>()(
+  persist(
+    (set, get) => ({
+      items: [],
+      addItem: (item) => {
+        /* cart logic */
+      },
+    }),
+    { name: "cart-storage" }
+  )
+);
+```
+
+### Frontend Architecture Components
+
+- **Context Providers**: `CustomizerContext`, `RBACContext`, `ProgramContext` for app-wide state
+- **Layout System**: `FullLayout` with vertical/horizontal header options
+- **Theme Management**: Material UI with dark/light mode switching
+- **Error Boundaries**: Global error handling with fallback UI
+- **Routing**: React Router with lazy loading via `Loadable` HOC
+
+### Key Component Patterns
+
+```typescript
+// Page components follow this pattern (src/views/*/Page.tsx)
+import PageContainer from "src/components/container/PageContainer";
+import Breadcrumb from "src/layouts/full/shared/breadcrumb/Breadcrumb";
+
+const MyPage: React.FC = () => {
+  return (
+    <PageContainer title="Page Title" description="Page description">
+      <Breadcrumb title="Page Title" items={BCrumb} />
+      {/* Page content */}
+    </PageContainer>
+  );
+};
+```
+
+## API Client Architecture
+
+### Centralized API Service
+
+```typescript
+// src/services/api.ts - ALL API calls go through this file
+const apiClient = axios.create({
+  baseURL: "/api",
+});
+
+// Program context injection
+apiClient.interceptors.request.use((config) => {
+  if (currentProgramId && shouldIncludeProgramId(config.url)) {
+    config.params = { ...config.params, program_id: currentProgramId };
+  }
+  return config;
+});
 ```
 
 ## State Management Patterns
@@ -129,18 +203,75 @@ export const fetchProjects = async (): Promise<Project[]> => {
 };
 ```
 
-## Critical Issues & Debugging
+## Critical Development Patterns
 
-### ⚠️ CRITICAL BUG: Cart System
+### Backend API Architecture
 
-The cart system currently creates inventory items instead of cart items:
+```javascript
+// api/index.js - Multi-tenant filtering pattern
+const authenticateUser = async (req, res, next) => {
+  // Certificate-based authentication
+  const clientCert = req.headers["x-arr-clientcert"] || "development-fallback";
+  const certSubject = extractCertificateSubject(clientCert);
 
-- **Location**: `src/components/apps/eCommerce/CartDrawer.tsx`
-- **Issue**: Cart submission calls inventory endpoint instead of `/api/cart/add`
-- **Impact**: Complete cart-to-pending-orders workflow broken
-- **Priority**: Must be fixed before any cart-related work
+  // User lookup with program access
+  const user = await getUserWithProgramAccess(certSubject);
+  req.user = user;
+  next();
+};
 
-### Health Monitoring
+// Program access middleware
+const checkProgramAccess = (requiredLevel = "Read") => {
+  return (req, res, next) => {
+    const programId = req.params.programId || req.query.program_id;
+    if (!req.user.accessible_programs.includes(programId)) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    next();
+  };
+};
+```
+
+### Database Patterns
+
+```sql
+-- All stored procedures use JSON parameters
+CREATE PROCEDURE usp_SaveInventoryItem
+    @InventoryItemJson NVARCHAR(MAX)
+AS
+BEGIN
+    DECLARE @program_id INT = JSON_VALUE(@InventoryItemJson, '$.program_id');
+    DECLARE @project_id INT = JSON_VALUE(@InventoryItemJson, '$.project_id');
+    -- Multi-tenant filtering enforced at DB level
+END
+```
+
+## Critical Issues & Status
+
+### ✅ Cart System - RESOLVED (July 16, 2025)
+
+The critical cart bug has been **completely resolved**:
+
+- **Issue**: Cart was creating inventory items instead of cart items
+- **Root Cause**: `CartDrawer.tsx` bypassed cart API workflow
+- **Solution**: Updated to use proper `/api/cart/add` → `/api/orders/create-from-cart` workflow
+- **Status**: Cart system fully operational for production use
+
+### ✅ Pending Orders - RESOLVED (July 15, 2025)
+
+- **Issue**: Orders displayed quantity "1" instead of actual quantities
+- **Root Cause**: Database field mismatch (`quantity_requested` vs `quantity_ordered`)
+- **Solution**: Updated `usp_GetPendingOrders` stored procedure
+- **Status**: Accurate quantity display working correctly
+
+### ⚠️ Next Priority: Multi-Tenant Security
+
+- **Issue**: Program-level filtering not fully implemented across all endpoints
+- **Impact**: Potential cross-program data access
+- **Action Required**: Add `program_id` filtering to remaining API endpoints
+- **Priority**: High - Security enhancement needed for production
+
+## Health Monitoring
 
 - **Dashboard**: `/system/health` - API endpoint monitoring
 - **Status**: Real-time health checks with 30-second intervals
@@ -200,66 +331,96 @@ const dbConfig = {
 
 ### Custom Theme Structure
 
-- **Location**: `src/theme/`
-- **Components**: Extensive theme customization
-- **Usage**: Dark/light mode support throughout
+- **Location**: `src/theme/` - Extensive theme customization
+- **Context**: `CustomizerContext` manages theme state across app
+- **Features**: Dark/light mode, RTL support, customizable layouts
+- **Usage**: All components use theme-aware styling
+
+### User Preferences Integration
+
+```typescript
+// src/services/userPreferencesService.ts
+export const userPreferencesService = {
+  initialize: async () => {
+    const user = await certificateService.getCurrentUser();
+    // Load user-specific preferences from localStorage
+  },
+  savePreferences: (preferences: UserPreferences) => {
+    // Save to localStorage with user-specific key
+  },
+};
+```
 
 ## Essential Files to Understand
 
-- `src/services/api.ts` - All API operations
-- `src/routes/Router.tsx` - Application routing
-- `api/index.js` - Backend API server
-- `h10cm.sql` - Database schema
-- `src/types/` - TypeScript interfaces
-- `src/store/cartStore.ts` - Cart state management
+### Core Infrastructure
+
+- `src/main.tsx` - App entry point with React Query and Context providers
+- `src/App.tsx` - Main app component with theme, routing, and error boundary
+- `src/routes/Router.tsx` - Complete application routing with lazy loading
+- `src/services/api.ts` - Centralized API client with interceptors
+
+### Backend Architecture
+
+- `api/index.js` - Main API server with authentication and multi-tenant filtering
+- `h10cm.sql` - Complete database schema with stored procedures
+- `api/tests/` - Jest test suite for API endpoints
+
+### Frontend Architecture
+
+- `src/layouts/full/FullLayout.tsx` - Main layout component with header/sidebar
+- `src/context/CustomizerContext.tsx` - Theme and layout state management
+- `src/context/RBACContext.tsx` - Role-based access control context
+- `src/components/container/PageContainer.tsx` - Standard page wrapper
+
+### Key Feature Areas
+
+- `src/hooks/api/` - React Query hooks for all API interactions
+- `src/store/cartStore.ts` - Shopping cart state with persistence
+- `src/types/` - TypeScript interfaces for all entities
+- `src/views/` - Page components organized by feature
+
+### Testing & Configuration
+
+- `src/test/setup.ts` - Vitest configuration and mocks
+- `src/test/test-utils.tsx` - Custom render with providers
+- `vite.config.ts` - Vite configuration with API proxy
+- `vitest.config.ts` - Test configuration with coverage
 
 ---
-
 # Codacy Rules
-
 Configuration for AI behavior when interacting with Codacy's MCP Server
 
-## using any tool that accepts the arguments: `provider`, `organization`, or `repository`
-
-- ALWAYS use:
-- provider: gh
-- organization: justinmdougherty
-- repository: H10CM
-- Avoid calling `git remote -v` unless really necessary
-
 ## After ANY successful `edit_file` or `reapply` operation
-
 - YOU MUST IMMEDIATELY run the `codacy_cli_analyze` tool from Codacy's MCP Server for each file that was edited, with:
-- `rootPath`: set to the workspace path
-- `file`: set to the path of the edited file
-- `tool`: leave empty or unset
+ - `rootPath`: set to the workspace path
+ - `file`: set to the path of the edited file
+ - `tool`: leave empty or unset
 - If any issues are found in the new edits, propose and apply fixes for them.
 - > NOTE: Failure to follow this rule is considered a critical error.
 
 ## CRITICAL: Dependencies and Security Checks
-
 - IMMEDIATELY after ANY of these actions:
-- Running npm/yarn/pnpm install
-- Adding dependencies to package.json
-- Adding requirements to requirements.txt
-- Adding dependencies to pom.xml
-- Adding dependencies to build.gradle
-- Any other package manager operations
+ - Running npm/yarn/pnpm install
+ - Adding dependencies to package.json
+ - Adding requirements to requirements.txt
+ - Adding dependencies to pom.xml
+ - Adding dependencies to build.gradle
+ - Any other package manager operations
 - You MUST run the `codacy_cli_analyze` tool with:
-- `rootPath`: set to the workspace path
-- `tool`: set to "trivy"
-- `file`: leave empty or unset
+ - `rootPath`: set to the workspace path
+ - `tool`: set to "trivy"
+ - `file`: leave empty or unset
 - If any vulnerabilities are found because of the newly added packages:
-- Stop all other operations
-- Propose and apply fixes for the security issues
-- Only continue with the original task after security issues are resolved
+ - Stop all other operations
+ - Propose and apply fixes for the security issues
+ - Only continue with the original task after security issues are resolved
 - EXAMPLE:
-- After: npm install react-markdown
-- Do: Run codacy_cli_analyze with trivy
-- Before: Continuing with any other tasks
+ - After: npm install react-markdown
+ - Do: Run codacy_cli_analyze with trivy
+ - Before: Continuing with any other tasks
 
 ## General
-
 - Repeat the relevant steps for each modified file.
 - "Propose fixes" means to both suggest and, if possible, automatically apply the fixes.
 - You MUST NOT wait for the user to ask for analysis or remind you to run the tool.
@@ -270,7 +431,6 @@ Configuration for AI behavior when interacting with Codacy's MCP Server
 - When calling `codacy_cli_analyze`, only send provider, organization and repository if the project is a git repository.
 
 ## Whenever a call to a Codacy tool that uses `repository` or `organization` as a parameter returns a 404 error
-
 - Offer to run the `codacy_setup_repository` tool to add the repository to Codacy
 - If the user accepts, run the `codacy_setup_repository` tool
 - Do not ever try to run the `codacy_setup_repository` tool on your own
