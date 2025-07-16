@@ -26,20 +26,18 @@ h10cm.sql               # Database creation script
 
 ### Key Development Commands
 
-```bash
 # Frontend development
-cd H10CM && npm install && npm run dev
+Set-Location H10CM; npm install; npm run dev
 
 # Backend development (separate terminal)
-cd api && npm install && npm run dev
+Set-Location api; npm install; npm run dev
 
 # Database setup (run once)
 # Execute h10cm.sql in MSSQL to create H10CM database
 
 # Testing
 npm test          # Frontend (Vitest + React Testing Library)
-cd api && npm test # Backend (Jest + Supertest)
-```
+Set-Location api; npm test # Backend (Jest + Supertest)
 
 ## Multi-Tenant Architecture
 

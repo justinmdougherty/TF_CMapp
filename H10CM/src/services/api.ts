@@ -9,7 +9,6 @@ import { StepInventoryRequirement } from 'src/types/StepInventoryRequirement'; /
 import { TrackedItem, TrackedItemAttribute, TrackedItemStepProgress } from 'src/types/TrackedItem';
 import { PendingOrderItem, PendingOrderSummary, ReceiveItemsRequest, PendingOrderStatus, PendingOrderHeader } from '../types/PendingOrders';
 import smartNotifications from './smartNotificationService';
-import certificateService from './certificateService';
 
 // The base URL will be handled by the Vite proxy you have set up
 const apiClient = axios.create({
@@ -596,4 +595,98 @@ export const getUserTaskSummary = async (userId: string): Promise<UserTaskSummar
   };
   
   return mockSummary;
+};
+
+// --- Cart API Functions ---
+
+export interface CartAPIItem {
+  cart_id?: number;
+  inventory_item_id: number;
+  quantity_requested: number;
+  estimated_cost?: number;
+  notes?: string;
+  item_name: string;
+  part_number?: string;
+  unit_of_measure: string;
+  user_id?: number;
+  date_added?: string;
+}
+
+export interface CartAPIResponse {
+  success: boolean;
+  items?: CartAPIItem[];
+  cart_summary?: {
+    total_items: number;
+    total_quantity: number;
+    total_estimated_cost: number;
+  };
+  message?: string;
+}
+
+export const addToCart = async (item: {
+  inventory_item_id: number;
+  quantity_requested: number;
+  estimated_cost?: number;
+  notes?: string;
+}): Promise<CartAPIResponse> => {
+  const { data } = await apiClient.post('/cart/add', item);
+  return data;
+};
+
+export const getCartItems = async (project_id: number): Promise<CartAPIResponse> => {
+  const { data } = await apiClient.get(`/cart?project_id=${project_id}`);
+  return data;
+};
+
+export const updateCartItem = async (cartId: number, item: {
+  quantity_requested: number;
+  estimated_cost?: number;
+  notes?: string;
+}): Promise<CartAPIResponse> => {
+  const { data } = await apiClient.put(`/cart/${cartId}`, item);
+  return data;
+};
+
+export const removeFromCart = async (cartId: number): Promise<CartAPIResponse> => {
+  const { data } = await apiClient.delete(`/cart/${cartId}`);
+  return data;
+};
+
+export const clearCart = async (project_id: number): Promise<CartAPIResponse> => {
+  const { data } = await apiClient.delete(`/cart/clear?project_id=${project_id}`);
+  return data;
+};
+
+export const createOrderFromCart = async (orderData: {
+  project_id: number;
+  supplier_info?: string;
+  order_notes?: string;
+}): Promise<BulkSubmissionResult> => {
+  try {
+    const { data } = await apiClient.post('/orders/create-from-cart', orderData);
+    return data;
+  } catch (error) {
+    console.error('Error creating order from cart:', error);
+    return {
+      success: false,
+      message: 'Failed to create order from cart',
+      successfulItems: [],
+      failedItems: []
+    };
+  }
+};
+
+// =============================================================================
+// CART & ORDERS API FUNCTIONS
+// =============================================================================
+
+// Mark order as received
+export const markOrderAsReceived = async (orderId: number) => {
+  try {
+    const { data } = await apiClient.put(`/orders/${orderId}/received`);
+    return data;
+  } catch (error) {
+    console.error('Error marking order as received:', error);
+    throw error;
+  }
 };

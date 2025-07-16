@@ -194,6 +194,9 @@ const executeQuery = async (req, res, query, params = []) => {
 // Legacy stored procedure execution (for backward compatibility)
 const executeProcedure = async (res, procedureName, params = []) => {
     try {
+        console.log(`=== EXECUTING PROCEDURE: ${procedureName} ===`);
+        console.log('Parameters:', JSON.stringify(params, null, 2));
+        
         const pool = res.app.locals.db;
         if (!pool) {
             throw new Error("Database not connected. Check your configuration.");
@@ -202,26 +205,33 @@ const executeProcedure = async (res, procedureName, params = []) => {
         const request = pool.request();
         
         params.forEach(param => {
+            console.log(`Adding parameter: ${param.name} = ${param.value}`);
             request.input(param.name, param.type, param.value);
         });
 
         const result = await request.execute(procedureName);
+        console.log('Procedure result:', result);
         
         res.setHeader('Content-Type', 'application/json');
 
         if (result.recordset && result.recordset.length > 0 && result.recordset[0][Object.keys(result.recordset[0])[0]]) {
             const jsonResultString = result.recordset[0][Object.keys(result.recordset[0])[0]];
+            console.log('JSON result string:', jsonResultString);
             const data = JSON.parse(jsonResultString);
             
             if (data.error) {
+                console.log('Procedure returned error:', data.error);
                 return res.status(400).send(JSON.stringify(data, null, 2));
             }
             if (data.SuccessMessage || data.WarningMessage) {
+                console.log('Procedure returned success/warning:', data);
                 return res.status(200).send(JSON.stringify(data, null, 2));
             }
             
+            console.log('Procedure returned data:', data);
             res.status(200).send(JSON.stringify(data, null, 2));
         } else {
+            console.log('Procedure returned empty result');
             res.status(200).send('[]');
         }
     } catch (error) {
@@ -244,7 +254,7 @@ app.get('/', (req, res) => {
 // =============================================================================
 
 app.get("/api/auth/me", authenticateUser, (req, res) => {
-  console.log("Headers received:", JSON.stringify(req.headers, null, 2));
+  //console.log("Headers received:", JSON.stringify(req.headers, null, 2));
 
   const clientCert = req.headers['x-arr-clientcert'] || DEFAULT_USER_CERT;
 
@@ -650,30 +660,52 @@ app.get('/api/inventory-items', authenticateUser, async (req, res) => {
 // POST create new inventory item (with program validation)
 app.post('/api/inventory-items', authenticateUser, async (req, res) => {
     try {
-        req.body.created_by = req.user.user_id;
+        console.log('=== INVENTORY ITEM CREATE REQUEST ===');
+        console.log('Request body:', JSON.stringify(req.body, null, 2));
+        console.log('User info:', { user_id: req.user?.user_id, program_access: req.user?.program_access });
         
         // Get user's default program (using the first one for now)
         const userProgram = req.user.program_access && req.user.program_access.length > 0 
             ? req.user.program_access[0].program_id 
             : 1; // Default to program_id 1 if no program access
         
-        const params = [
-            { name: 'item_name', type: sql.NVarChar, value: req.body.item_name },
-            { name: 'part_number', type: sql.NVarChar, value: req.body.part_number },
-            { name: 'description', type: sql.NVarChar, value: req.body.description },
-            { name: 'category', type: sql.NVarChar, value: req.body.category },
-            { name: 'unit_of_measure', type: sql.NVarChar, value: req.body.unit_of_measure },
-            { name: 'current_stock_level', type: sql.Decimal, value: req.body.current_stock_level || 0 },
-            { name: 'reorder_point', type: sql.Decimal, value: req.body.reorder_point },
-            { name: 'max_stock_level', type: sql.Decimal, value: req.body.max_stock_level },
-            { name: 'supplier_info', type: sql.NVarChar, value: req.body.supplier_info },
-            { name: 'cost_per_unit', type: sql.Decimal, value: req.body.cost_per_unit },
-            { name: 'location', type: sql.NVarChar, value: req.body.location },
-            { name: 'program_id', type: sql.Int, value: userProgram },
-            { name: 'created_by', type: sql.Int, value: req.user.user_id }
-        ];
+        console.log('Using program_id:', userProgram);
         
-        await executeProcedure(res, 'usp_SaveInventoryItem', params);
+        // Build the JSON object for the stored procedure
+        const inventoryItemJson = {
+            inventory_item_id: null, // For new items
+            item_name: req.body.item_name,
+            part_number: req.body.part_number,
+            description: req.body.description,
+            category: req.body.category,
+            unit_of_measure: req.body.unit_of_measure,
+            current_stock_level: req.body.current_stock_level || 0,
+            reorder_point: req.body.reorder_point,
+            max_stock_level: req.body.max_stock_level,
+            supplier_info: req.body.supplier_info,
+            cost_per_unit: req.body.cost_per_unit,
+            location: req.body.location,
+            program_id: userProgram,
+            created_by: req.user.user_id
+        };
+        
+        console.log('Sending to stored procedure:', JSON.stringify(inventoryItemJson, null, 2));
+        
+        // Execute the stored procedure directly instead of using executeProcedure
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('InventoryItemJson', sql.NVarChar, JSON.stringify(inventoryItemJson));
+        
+        const result = await request.execute('usp_SaveInventoryItem');
+        console.log('Procedure result:', result);
+        
+        // Return the created inventory item
+        if (result.recordset && result.recordset.length > 0) {
+            res.json(result.recordset[0]);
+        } else {
+            res.status(500).json({ error: 'Failed to create inventory item - no result returned' });
+        }
+        
     } catch (error) {
         console.error('Error creating inventory item:', error);
         res.status(500).json({ error: 'Failed to create inventory item' });
@@ -992,20 +1024,29 @@ app.post('/api/cart/add', authenticateUser, async (req, res) => {
             });
         }
 
-        const request = new sql.Request(app.locals.db);
-        const result = await request
-            .input('user_id', sql.Int, req.user.user_id)
-            .input('inventory_item_id', sql.Int, inventory_item_id)
-            .input('quantity_requested', sql.Decimal(18, 4), quantity_requested)
-            .input('estimated_cost', sql.Decimal(18, 2), estimated_cost || null)
-            .input('notes', sql.NVarChar(sql.MAX), notes || null)
-            .execute('usp_AddToCart');
+        // Build the JSON object for the stored procedure
+        const cartItemJson = {
+            user_id: req.user.user_id,
+            inventory_item_id: inventory_item_id,
+            quantity_requested: quantity_requested,
+            estimated_cost: estimated_cost || null,
+            notes: notes || null
+        };
+
+        console.log('Adding to cart with JSON:', JSON.stringify(cartItemJson, null, 2));
+
+        // Execute the stored procedure with JSON parameter
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('CartItemJson', sql.NVarChar, JSON.stringify(cartItemJson));
+        
+        const result = await request.execute('usp_AddToCart');
 
         res.json({
             success: true,
             message: 'Item added to cart successfully', 
             user_id: req.user.user_id,
-            cart_summary: result.recordset[0]
+            cart_summary: result.recordset[0] || {}
         });
     } catch (error) {
         console.error('Error adding item to cart:', error);
@@ -1125,6 +1166,52 @@ app.get('/api/orders/pending', authenticateUser, async (req, res) => {
     } catch (error) {
         console.error('Error getting pending orders:', error);
         res.status(500).json({ error: 'Failed to get pending orders' });
+    }
+});
+
+// PUT mark order as received (updates inventory and order status)
+app.put('/api/orders/:orderId/received', authenticateUser, async (req, res) => {
+    try {
+        const orderId = parseInt(req.params.orderId);
+        
+        // Validate order ID
+        if (isNaN(orderId) || orderId <= 0) {
+            return res.status(400).json({ error: 'Invalid order ID' });
+        }
+
+        console.log(`Marking order ${orderId} as received by user ${req.user.user_id}`);
+
+        // Build the JSON object for the stored procedure
+        const orderReceivedJson = {
+            order_id: orderId,
+            user_id: req.user.user_id
+        };
+
+        console.log('Marking order as received with JSON:', JSON.stringify(orderReceivedJson, null, 2));
+
+        // Execute the stored procedure with JSON parameter
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('OrderReceivedJson', sql.NVarChar, JSON.stringify(orderReceivedJson));
+        
+        const result = await request.execute('usp_MarkOrderAsReceived');
+        
+        // Parse JSON result
+        if (result.recordset && result.recordset.length > 0) {
+            const jsonResult = result.recordset[0].JsonResult;
+            const data = JSON.parse(jsonResult);
+            
+            if (data.error) {
+                return res.status(400).json(data);
+            }
+            
+            res.json(data);
+        } else {
+            res.status(500).json({ error: 'No result returned from stored procedure' });
+        }
+    } catch (error) {
+        console.error('Error marking order as received:', error);
+        res.status(500).json({ error: 'Failed to mark order as received' });
     }
 });
 

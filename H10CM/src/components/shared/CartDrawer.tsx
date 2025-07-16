@@ -26,11 +26,11 @@ import {
 import { useCartStore, cartHelpers } from 'src/store/cartStore';
 import { CartItem } from 'src/types/Cart';
 import {
-  createPendingOrders,
   createInventoryItem,
   bulkAdjustInventoryStock,
+  addToCart,
+  createOrderFromCart,
 } from 'src/services/api';
-import certificateService from 'src/services/certificateService';
 
 const CartDrawer: React.FC = () => {
   const theme = useTheme();
@@ -60,16 +60,6 @@ const CartDrawer: React.FC = () => {
     [updateItemQuantity],
   );
 
-  const handleQuantityBlur = useCallback(
-    (cartItemId: string, quantity: number) => {
-      // Remove item only when user finishes editing and quantity is still 0
-      if (quantity === 0) {
-        removeItem(cartItemId);
-      }
-    },
-    [removeItem],
-  );
-
   const handleCostChange = useCallback(
     (cartItemId: string, newCost: string) => {
       const cost = parseFloat(newCost) || 0;
@@ -88,31 +78,50 @@ const CartDrawer: React.FC = () => {
       const adjustmentItems = useCartStore.getState().getAdjustmentItems();
 
       let allSuccessful = true;
-      const errors: string[] = []; // Process new items
+      const errors: string[] = [];
+
+      // Process new items - create inventory items first, then add to cart
       if (newItems.length > 0) {
         try {
-          // Create each new inventory item
+          const createdItems: number[] = [];
+
+          // First create inventory items
           for (const item of newItems) {
             const newInventoryItem = {
               item_name: item.item_name,
               part_number: item.part_number || '',
               description: item.description || '',
-              category: 'General', // Default category
+              category: 'General',
               unit_of_measure: item.unit_of_measure,
-              current_stock_level: item.quantity,
+              current_stock_level: 0, // Start with 0 stock
               reorder_point: item.reorder_point || 0,
-              max_stock_level: null,
+              max_stock_level: undefined,
               supplier_info: item.supplier || '',
               cost_per_unit: item.estimated_cost || 0,
-              location: 'Main Warehouse', // Default location
-              program_id: 1, // Default program ID
-              created_by: 1, // Default user ID for now
+              location: 'Main Warehouse',
+              program_id: 1,
+              created_by: 1,
             };
 
-            await createInventoryItem(newInventoryItem);
+            console.log('Creating inventory item:', newInventoryItem);
+            const createdItem = await createInventoryItem(newInventoryItem);
+            console.log('Created item response:', createdItem);
+            createdItems.push(createdItem.inventory_item_id);
           }
 
-          console.log('Successfully created new inventory items:', newItems.length);
+          // Then add each new item to cart for ordering
+          for (let i = 0; i < newItems.length; i++) {
+            const cartItem = {
+              inventory_item_id: createdItems[i],
+              quantity_requested: newItems[i].quantity,
+              estimated_cost: newItems[i].estimated_cost || 0,
+              notes: `New item: ${newItems[i].item_name}`,
+            };
+
+            await addToCart(cartItem);
+          }
+
+          console.log('Successfully created and added new items to cart:', newItems.length);
         } catch (error) {
           allSuccessful = false;
           console.error('New items creation error:', error);
@@ -121,39 +130,34 @@ const CartDrawer: React.FC = () => {
         }
       }
 
-      // Process reorder items - create pending orders instead of direct adjustments
+      // Process reorder items - add directly to cart
       if (reorderItems.length > 0) {
         try {
-          // Get current user from certificate service
-          const currentUser = await certificateService.getCurrentUser();
+          for (const item of reorderItems) {
+            if (item.inventory_item_id) {
+              const cartItem = {
+                inventory_item_id: item.inventory_item_id,
+                quantity_requested: item.quantity,
+                estimated_cost: item.estimated_cost || 0,
+                notes: item.notes || 'Reorder request',
+              };
 
-          const pendingOrderItems = reorderItems
-            .filter((item) => item.inventory_item_id) // Only process items with valid IDs
-            .map((item) => ({
-              item_name: item.item_name,
-              part_number: item.part_number || '',
-              quantity_requested: item.quantity,
-              unit_of_measure: item.unit_of_measure,
-              supplier: item.supplier || '',
-              estimated_cost: item.estimated_cost || 0,
-              notes: item.notes || 'Bulk reorder request',
-              inventory_item_id: item.inventory_item_id!,
-              requested_by: currentUser.displayName || 'Unknown User',
-            }));
+              await addToCart(cartItem);
+            }
+          }
 
-          await createPendingOrders(pendingOrderItems);
-          console.log('Created pending orders for:', pendingOrderItems);
+          console.log('Successfully added reorder items to cart:', reorderItems.length);
         } catch (error) {
           allSuccessful = false;
-          console.error('Pending orders creation error:', error);
+          console.error('Reorder items cart error:', error);
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           errors.push(
-            `Failed to create pending orders for ${reorderItems.length} items: ${errorMessage}`,
+            `Failed to add ${reorderItems.length} reorder items to cart: ${errorMessage}`,
           );
         }
       }
 
-      // Process adjustment items
+      // Process adjustment items - direct inventory adjustments
       if (adjustmentItems.length > 0) {
         try {
           const adjustments = adjustmentItems.map((item) => ({
@@ -161,7 +165,7 @@ const CartDrawer: React.FC = () => {
             quantity_changed: item.quantity,
             transaction_type:
               item.adjustment_type === 'add' ? ('add' as const) : ('subtract' as const),
-            user_name: 'Current User', // TODO: Get from auth context
+            user_name: 'Current User',
             notes: item.adjustment_reason || item.notes || 'Bulk adjustment',
           }));
 
@@ -175,13 +179,36 @@ const CartDrawer: React.FC = () => {
         }
       }
 
+      // Create order from cart if there are new items or reorder items
+      if ((newItems.length > 0 || reorderItems.length > 0) && allSuccessful) {
+        try {
+          const orderData = {
+            project_id: 1,
+            supplier_info: 'Various Suppliers',
+            order_notes: `Bulk order from cart: ${newItems.length} new items, ${reorderItems.length} reorder items`,
+          };
+
+          const orderResult = await createOrderFromCart(orderData);
+
+          if (orderResult.success) {
+            console.log('Successfully created order from cart');
+          } else {
+            console.warn('Order creation had issues:', orderResult.message);
+          }
+        } catch (error) {
+          console.error('Order creation error:', error);
+          // Don't fail the whole operation for order creation issues
+        }
+      }
+
       if (allSuccessful) {
         let successMsg = 'Successfully processed all items! ';
-        if (newItems.length > 0) successMsg += `${newItems.length} new items added to inventory. `;
+        if (newItems.length > 0)
+          successMsg += `${newItems.length} new items created and added to cart. `;
         if (reorderItems.length > 0)
-          successMsg += `${reorderItems.length} reorder requests sent to pending orders. `;
+          successMsg += `${reorderItems.length} reorder items added to cart. `;
         if (adjustmentItems.length > 0)
-          successMsg += `${adjustmentItems.length} inventory adjustments made.`;
+          successMsg += `${adjustmentItems.length} inventory adjustments made. `;
 
         setSubmitResult(successMsg);
         clearCart();
@@ -386,7 +413,11 @@ const CartDrawer: React.FC = () => {
 
             {submitResult && (
               <Alert
-                severity={submitResult.includes('Error') ? 'error' : 'success'}
+                severity={
+                  submitResult.toLowerCase().includes('error') || submitResult.includes('Failed')
+                    ? 'error'
+                    : 'success'
+                }
                 sx={{ mb: 2 }}
                 onClose={() => setSubmitResult(null)}
               >

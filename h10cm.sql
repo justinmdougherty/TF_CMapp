@@ -1831,6 +1831,130 @@ BEGIN
 END;
 GO
 
+-- Mark order as received and update inventory
+CREATE PROCEDURE [dbo].[usp_MarkOrderAsReceived]
+    @OrderReceivedJson NVARCHAR(MAX)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @ResultJson NVARCHAR(MAX);
+    DECLARE @OrderExists BIT = 0;
+    DECLARE @UserCanReceive BIT = 0;
+    DECLARE @OrderStatus NVARCHAR(50);
+    DECLARE @OrderNumber NVARCHAR(50);
+    
+    -- Parse JSON input
+    DECLARE @OrderId INT = JSON_VALUE(@OrderReceivedJson, '$.order_id');
+    DECLARE @UserId INT = JSON_VALUE(@OrderReceivedJson, '$.user_id');
+    
+    BEGIN TRY
+        -- Validate JSON parameters
+        IF @OrderId IS NULL OR @UserId IS NULL
+        BEGIN
+            SET @ResultJson = '{"error": "Missing required parameters: order_id and user_id"}';
+            SELECT @ResultJson as JsonResult;
+            RETURN;
+        END
+        
+        -- Check if order exists and get current status
+        SELECT 
+            @OrderExists = 1,
+            @OrderStatus = status,
+            @OrderNumber = order_number,
+            @UserCanReceive = CASE 
+                WHEN user_id = @UserId THEN 1 
+                ELSE 0 
+            END
+        FROM PendingOrders 
+        WHERE order_id = @OrderId;
+        
+        -- Validate order exists
+        IF @OrderExists = 0
+        BEGIN
+            SET @ResultJson = '{"error": "Order not found"}';
+            SELECT @ResultJson as JsonResult;
+            RETURN;
+        END
+        
+        -- Check if user can receive this order (must be the person who ordered it)
+        IF @UserCanReceive = 0
+        BEGIN
+            -- Check if user is system admin
+            DECLARE @IsSystemAdmin BIT = 0;
+            SELECT @IsSystemAdmin = is_system_admin FROM Users WHERE user_id = @UserId;
+            
+            IF @IsSystemAdmin = 0
+            BEGIN
+                SET @ResultJson = '{"error": "Only the person who ordered can mark as received"}';
+                SELECT @ResultJson as JsonResult;
+                RETURN;
+            END
+        END
+        
+        -- Check if order is already received
+        IF @OrderStatus = 'Received'
+        BEGIN
+            SET @ResultJson = '{"error": "Order has already been marked as received"}';
+            SELECT @ResultJson as JsonResult;
+            RETURN;
+        END
+        
+        -- Check if order is in a state that can be received
+        IF @OrderStatus NOT IN ('Pending', 'Approved', 'Ordered')
+        BEGIN
+            SET @ResultJson = '{"error": "Order cannot be received in current status: ' + @OrderStatus + '"}';
+            SELECT @ResultJson as JsonResult;
+            RETURN;
+        END
+        
+        -- Begin transaction to update order and inventory
+        BEGIN TRANSACTION;
+        
+        -- Update all order items to mark as fully received
+        UPDATE PendingOrderItems 
+        SET quantity_received = quantity_ordered
+        WHERE order_id = @OrderId;
+        
+        -- Update inventory stock levels
+        UPDATE ii
+        SET current_stock_level = ISNULL(current_stock_level, 0) + poi.quantity_ordered,
+            last_modified = GETDATE()
+        FROM InventoryItems ii
+        INNER JOIN PendingOrderItems poi ON ii.inventory_item_id = poi.inventory_item_id
+        WHERE poi.order_id = @OrderId;
+        
+        -- Update order status to received
+        UPDATE PendingOrders 
+        SET status = 'Received',
+            actual_delivery_date = GETDATE(),
+            last_modified = GETDATE()
+        WHERE order_id = @OrderId;
+        
+        -- Commit transaction
+        COMMIT TRANSACTION;
+        
+        -- Return success with order details
+        DECLARE @ItemsUpdated INT;
+        SELECT @ItemsUpdated = COUNT(*) FROM PendingOrderItems WHERE order_id = @OrderId;
+        
+        SET @ResultJson = '{"success": true, "message": "Order marked as received and inventory updated", "order_id": ' + CAST(@OrderId AS NVARCHAR(10)) + ', "order_number": "' + @OrderNumber + '", "received_date": "' + FORMAT(GETDATE(), 'yyyy-MM-dd HH:mm:ss') + '", "items_updated": ' + CAST(@ItemsUpdated AS NVARCHAR(10)) + '}';
+        
+        SELECT @ResultJson as JsonResult;
+        
+    END TRY
+    BEGIN CATCH
+        -- Rollback transaction on error
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+            
+        SET @ResultJson = '{"error": "Failed to mark order as received: ' + ERROR_MESSAGE() + '", "error_number": ' + CAST(ERROR_NUMBER() AS NVARCHAR(10)) + ', "error_line": ' + CAST(ERROR_LINE() AS NVARCHAR(10)) + '}';
+        
+        SELECT @ResultJson as JsonResult;
+    END CATCH
+END;
+GO
+
 -- =============================================
 -- ENHANCED DEFAULT DATA WITH PROPER USERS
 -- =============================================
@@ -2128,6 +2252,7 @@ PRINT '- usp_UpdateCartItem (Update cart quantities)'
 PRINT '- usp_RemoveFromCart (Remove from cart)'
 PRINT '- usp_CreateOrderFromCart (Create procurement orders)'
 PRINT '- usp_GetPendingOrders (View pending orders)'
+PRINT '- usp_MarkOrderAsReceived (Mark orders as received and update inventory)'
 PRINT ''
 PRINT '✅ TABLES ADDED:'
 PRINT '- CartItems (Shopping cart functionality)'
