@@ -32,6 +32,7 @@ import {
   IconUserCog,        // For Admin Dashboard
   IconChartLine,      // For Analytics Dashboard
   IconChecklist,      // For My Tasks
+  IconCurrencyDollar, // For Procurement Management
 } from '@tabler/icons-react';
 
 const BaseMenuItems: MenuitemsType[] = [
@@ -54,6 +55,13 @@ const BaseMenuItems: MenuitemsType[] = [
     title: 'Project Management',
     icon: IconSettings,
     href: '/project-management',
+  },
+  {
+    id: uniqueId(),
+    title: 'Procurement Management',
+    icon: IconCurrencyDollar,
+    href: '/procurement',
+    requiredRoles: ['Admin', 'ProjectManager', 'Technician'], // Allow Admin, PM, and Technician access
   },
   {
     id: uniqueId(),

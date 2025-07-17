@@ -539,1742 +539,635 @@ CREATE TABLE [dbo].[PendingOrderItems](
 GO
 
 -- =============================================
--- VIEWS
+-- PROCUREMENT & FUNDING MANAGEMENT TABLES
 -- =============================================
 
--- Enhanced Projects Summary View
-CREATE VIEW [dbo].[v_Projects_Summary] AS
-SELECT
-    p.project_id,
-    p.project_name,
-    p.project_description,
-    p.status,
-    p.priority,
-    pr.program_name,
-    pr.program_code,
-    pm.display_name AS project_manager_name,
-    cb.display_name AS created_by_name,
-    p.date_created,
-    p.last_modified,
-    p.project_start_date,
-    p.project_end_date,
-    p.estimated_completion_date,
-    p.actual_completion_date,
-    p.budget,
-    (SELECT COUNT(*) FROM dbo.ProjectSteps ps WHERE ps.project_id = p.project_id) AS total_steps,
-    (SELECT COUNT(*) FROM dbo.TrackedItems ti WHERE ti.project_id = p.project_id) AS total_tracked_items
-FROM dbo.Projects p
-LEFT JOIN dbo.Programs pr ON p.program_id = pr.program_id
-LEFT JOIN dbo.Users pm ON p.project_manager_id = pm.user_id
-LEFT JOIN dbo.Users cb ON p.created_by = cb.user_id;
+-- Sponsors Table (Organizations providing funding)
+CREATE TABLE [dbo].[Sponsors] (
+    [sponsor_id] [int] IDENTITY(1,1) NOT NULL,
+    [program_id] [int] NOT NULL,
+    [sponsor_name] [nvarchar](255) NOT NULL,
+    [sponsor_code] [nvarchar](50) NOT NULL,
+    [organization_type] [nvarchar](100) NULL, -- Government, Commercial, Internal, etc.
+    [primary_contact_name] [nvarchar](255) NULL,
+    [primary_contact_email] [nvarchar](255) NULL,
+    [primary_contact_phone] [nvarchar](50) NULL,
+    [billing_address] [nvarchar](max) NULL,
+    [tax_id] [nvarchar](50) NULL,
+    [payment_terms] [nvarchar](255) NULL,
+    [status] [nvarchar](50) NOT NULL DEFAULT 'Active',
+    [notes] [nvarchar](max) NULL,
+    [created_by] [int] NOT NULL,
+    [created_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    [last_modified] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_Sponsors] PRIMARY KEY CLUSTERED ([sponsor_id]),
+    CONSTRAINT [FK_Sponsors_Program] FOREIGN KEY ([program_id]) REFERENCES [dbo].[Programs]([program_id]),
+    CONSTRAINT [FK_Sponsors_CreatedBy] FOREIGN KEY ([created_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [UQ_Sponsors_Code] UNIQUE ([program_id], [sponsor_code]),
+    CONSTRAINT [CK_Sponsors_Status] CHECK ([status] IN ('Active', 'Inactive', 'Suspended'))
+) ON [PRIMARY]
 GO
 
--- User Access Summary View
-CREATE VIEW [dbo].[v_User_Access_Summary] AS
-SELECT
-    u.user_id,
-    u.user_name,
-    u.display_name,
-    u.is_system_admin,
-    prog.program_id,
-    prog.program_name,
-    pa.access_level AS program_access_level,
-    proj.project_id,
-    proj.project_name,
-    pra.access_level AS project_access_level
-FROM dbo.Users u
-LEFT JOIN dbo.ProgramAccess pa ON u.user_id = pa.user_id AND pa.is_active = 1
-LEFT JOIN dbo.Programs prog ON pa.program_id = prog.program_id AND prog.is_active = 1
-LEFT JOIN dbo.ProjectAccess pra ON u.user_id = pra.user_id AND pra.is_active = 1
-LEFT JOIN dbo.Projects proj ON pra.project_id = proj.project_id
-WHERE u.is_active = 1;
+-- SponsorFunds Table (Specific funding sources/accounts)
+CREATE TABLE [dbo].[SponsorFunds] (
+    [fund_id] [int] IDENTITY(1,1) NOT NULL,
+    [sponsor_id] [int] NOT NULL,
+    [fund_name] [nvarchar](255) NOT NULL,
+    [fund_code] [nvarchar](50) NOT NULL,
+    [fund_type] [nvarchar](100) NOT NULL, -- Contract, Grant, Internal, Emergency, etc.
+    [total_amount] [decimal](18, 2) NOT NULL,
+    [allocated_amount] [decimal](18, 2) NOT NULL DEFAULT 0,
+    [spent_amount] [decimal](18, 2) NOT NULL DEFAULT 0,
+    [remaining_amount] AS ([total_amount] - [allocated_amount]) PERSISTED,
+    [effective_date] [datetime2](7) NOT NULL,
+    [expiration_date] [datetime2](7) NULL,
+    [funding_document_id] [int] NULL,
+    [approval_status] [nvarchar](50) NOT NULL DEFAULT 'Pending',
+    [approved_by] [int] NULL,
+    [approved_date] [datetime2](7) NULL,
+    [status] [nvarchar](50) NOT NULL DEFAULT 'Active',
+    [restrictions] [nvarchar](max) NULL, -- JSON or text describing usage restrictions
+    [reporting_requirements] [nvarchar](max) NULL,
+    [notes] [nvarchar](max) NULL,
+    [created_by] [int] NOT NULL,
+    [created_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    [last_modified] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_SponsorFunds] PRIMARY KEY CLUSTERED ([fund_id]),
+    CONSTRAINT [FK_SponsorFunds_Sponsor] FOREIGN KEY ([sponsor_id]) REFERENCES [dbo].[Sponsors]([sponsor_id]),
+    CONSTRAINT [FK_SponsorFunds_ApprovedBy] FOREIGN KEY ([approved_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [FK_SponsorFunds_CreatedBy] FOREIGN KEY ([created_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [UQ_SponsorFunds_Code] UNIQUE ([sponsor_id], [fund_code]),
+    CONSTRAINT [CK_SponsorFunds_Status] CHECK ([status] IN ('Active', 'Inactive', 'Expired', 'Exhausted')),
+    CONSTRAINT [CK_SponsorFunds_Approval] CHECK ([approval_status] IN ('Pending', 'Approved', 'Rejected')),
+    CONSTRAINT [CK_SponsorFunds_Amounts] CHECK ([total_amount] >= 0 AND [allocated_amount] >= 0 AND [spent_amount] >= 0),
+    CONSTRAINT [CK_SponsorFunds_Dates] CHECK ([effective_date] <= [expiration_date] OR [expiration_date] IS NULL)
+) ON [PRIMARY]
 GO
 
--- Task Summary View
-CREATE VIEW [dbo].[v_Tasks_Summary] AS
-SELECT
-    t.task_id,
-    t.task_title,
-    t.priority,
-    t.status,
-    t.completion_percentage,
-    assigned_user.display_name AS assigned_to_name,
-    assigner.display_name AS assigned_by_name,
-    p.project_name,
-    pr.program_name,
-    t.due_date,
-    t.date_created,
-    t.date_completed,
-    CASE 
-        WHEN t.due_date < GETDATE() AND t.status NOT IN ('Completed', 'Cancelled') THEN 'Overdue'
-        WHEN t.due_date <= DATEADD(day, 1, GETDATE()) AND t.status NOT IN ('Completed', 'Cancelled') THEN 'Due Soon'
-        ELSE 'On Track'
-    END AS urgency_status
-FROM dbo.Tasks t
-LEFT JOIN dbo.Users assigned_user ON t.assigned_to = assigned_user.user_id
-LEFT JOIN dbo.Users assigner ON t.assigned_by = assigner.user_id
-LEFT JOIN dbo.Projects p ON t.project_id = p.project_id
-LEFT JOIN dbo.Programs pr ON p.program_id = pr.program_id;
+-- FundingDocuments Table (Contracts, agreements, documentation)
+CREATE TABLE [dbo].[FundingDocuments] (
+    [document_id] [int] IDENTITY(1,1) NOT NULL,
+    [fund_id] [int] NULL,
+    [sponsor_id] [int] NOT NULL,
+    [document_type] [nvarchar](100) NOT NULL, -- Contract, Grant Agreement, Amendment, etc.
+    [document_number] [nvarchar](100) NOT NULL,
+    [document_title] [nvarchar](255) NOT NULL,
+    [document_description] [nvarchar](max) NULL,
+    [file_path] [nvarchar](500) NULL,
+    [file_name] [nvarchar](255) NULL,
+    [file_size] [bigint] NULL,
+    [mime_type] [nvarchar](100) NULL,
+    [effective_date] [datetime2](7) NOT NULL,
+    [expiration_date] [datetime2](7) NULL,
+    [renewal_date] [datetime2](7) NULL,
+    [status] [nvarchar](50) NOT NULL DEFAULT 'Active',
+    [version] [nvarchar](20) NOT NULL DEFAULT '1.0',
+    [parent_document_id] [int] NULL, -- For amendments and revisions
+    [compliance_requirements] [nvarchar](max) NULL,
+    [reporting_schedule] [nvarchar](max) NULL,
+    [key_terms] [nvarchar](max) NULL, -- JSON or structured text
+    [uploaded_by] [int] NOT NULL,
+    [uploaded_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    [last_modified] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_FundingDocuments] PRIMARY KEY CLUSTERED ([document_id]),
+    CONSTRAINT [FK_FundingDocuments_Fund] FOREIGN KEY ([fund_id]) REFERENCES [dbo].[SponsorFunds]([fund_id]),
+    CONSTRAINT [FK_FundingDocuments_Sponsor] FOREIGN KEY ([sponsor_id]) REFERENCES [dbo].[Sponsors]([sponsor_id]),
+    CONSTRAINT [FK_FundingDocuments_Parent] FOREIGN KEY ([parent_document_id]) REFERENCES [dbo].[FundingDocuments]([document_id]),
+    CONSTRAINT [FK_FundingDocuments_UploadedBy] FOREIGN KEY ([uploaded_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [UQ_FundingDocuments_Number] UNIQUE ([sponsor_id], [document_number]),
+    CONSTRAINT [CK_FundingDocuments_Status] CHECK ([status] IN ('Active', 'Inactive', 'Expired', 'Superseded')),
+    CONSTRAINT [CK_FundingDocuments_Dates] CHECK ([effective_date] <= [expiration_date] OR [expiration_date] IS NULL)
+) ON [PRIMARY]
 GO
 
--- Inventory Status View
-CREATE VIEW [dbo].[v_InventoryItems_StockStatus] AS
-SELECT
-    ii.inventory_item_id,
-    ii.item_name,
-    ii.part_number,
-    ii.category,
-    ii.unit_of_measure,
-    ii.current_stock_level,
-    ii.reorder_point,
-    ii.max_stock_level,
-    ii.cost_per_unit,
-    ii.location,
-    (CASE WHEN ii.current_stock_level <= ISNULL(ii.reorder_point, 0) THEN 'Yes' ELSE 'No' END) AS needs_reorder,
-    (CASE 
-        WHEN ii.current_stock_level <= 0 THEN 'Out of Stock'
-        WHEN ii.current_stock_level <= ISNULL(ii.reorder_point, 0) THEN 'Low Stock'
-        WHEN ii.current_stock_level >= ISNULL(ii.max_stock_level, 99999) THEN 'Overstock'
-        ELSE 'Normal'
-    END) AS stock_status,
-    (ii.current_stock_level * ISNULL(ii.cost_per_unit, 0)) AS total_value
-FROM dbo.InventoryItems ii
-WHERE ii.is_active = 1;
+-- Add foreign key reference from SponsorFunds to FundingDocuments
+ALTER TABLE [dbo].[SponsorFunds] 
+ADD CONSTRAINT [FK_SponsorFunds_Document] FOREIGN KEY ([funding_document_id]) REFERENCES [dbo].[FundingDocuments]([document_id])
 GO
 
--- Notification Summary View
-CREATE VIEW [dbo].[v_Notifications_Summary] AS
-SELECT
-    n.notification_id,
-    n.user_id,
-    u.display_name AS user_name,
-    n.category,
-    n.title,
-    n.priority,
-    n.is_read,
-    n.is_actionable,
-    n.action_url,
-    n.action_text,
-    n.related_entity_type,
-    n.related_entity_id,
-    n.date_created,
-    n.date_read,
-    DATEDIFF(hour, n.date_created, GETDATE()) AS hours_old
-FROM dbo.Notifications n
-LEFT JOIN dbo.Users u ON n.user_id = u.user_id
-WHERE n.expires_at IS NULL OR n.expires_at > GETDATE();
+-- TaskFundAllocations Table (Allocate funds to specific tasks)
+CREATE TABLE [dbo].[TaskFundAllocations] (
+    [allocation_id] [int] IDENTITY(1,1) NOT NULL,
+    [task_id] [int] NOT NULL,
+    [fund_id] [int] NOT NULL,
+    [allocation_amount] [decimal](18, 2) NOT NULL,
+    [spent_amount] [decimal](18, 2) NOT NULL DEFAULT 0,
+    [remaining_amount] AS ([allocation_amount] - [spent_amount]) PERSISTED,
+    [allocation_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    [expiration_date] [datetime2](7) NULL,
+    [status] [nvarchar](50) NOT NULL DEFAULT 'Active',
+    [is_cross_payment] [bit] NOT NULL DEFAULT 0, -- Indicates if this is a cross-sponsor payment
+    [cross_payment_sponsor_id] [int] NULL, -- Which sponsor is being paid back
+    [cross_payment_reference] [nvarchar](100) NULL,
+    [purpose] [nvarchar](255) NOT NULL,
+    [justification] [nvarchar](max) NULL,
+    [approval_status] [nvarchar](50) NOT NULL DEFAULT 'Approved',
+    [approved_by] [int] NULL,
+    [approved_date] [datetime2](7) NULL,
+    [notes] [nvarchar](max) NULL,
+    [created_by] [int] NOT NULL,
+    [created_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    [last_modified] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_TaskFundAllocations] PRIMARY KEY CLUSTERED ([allocation_id]),
+    CONSTRAINT [FK_TaskFundAllocations_Task] FOREIGN KEY ([task_id]) REFERENCES [dbo].[Tasks]([task_id]),
+    CONSTRAINT [FK_TaskFundAllocations_Fund] FOREIGN KEY ([fund_id]) REFERENCES [dbo].[SponsorFunds]([fund_id]),
+    CONSTRAINT [FK_TaskFundAllocations_CrossPaymentSponsor] FOREIGN KEY ([cross_payment_sponsor_id]) REFERENCES [dbo].[Sponsors]([sponsor_id]),
+    CONSTRAINT [FK_TaskFundAllocations_ApprovedBy] FOREIGN KEY ([approved_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [FK_TaskFundAllocations_CreatedBy] FOREIGN KEY ([created_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [UQ_TaskFundAllocations_TaskFund] UNIQUE ([task_id], [fund_id]),
+    CONSTRAINT [CK_TaskFundAllocations_Status] CHECK ([status] IN ('Active', 'Inactive', 'Expired', 'Exhausted')),
+    CONSTRAINT [CK_TaskFundAllocations_Approval] CHECK ([approval_status] IN ('Pending', 'Approved', 'Rejected')),
+    CONSTRAINT [CK_TaskFundAllocations_Amounts] CHECK ([allocation_amount] > 0 AND [spent_amount] >= 0),
+    CONSTRAINT [CK_TaskFundAllocations_CrossPayment] CHECK (([is_cross_payment] = 0) OR ([is_cross_payment] = 1 AND [cross_payment_sponsor_id] IS NOT NULL))
+) ON [PRIMARY]
 GO
 
--- =============================================
--- INDEXES FOR PERFORMANCE
--- =============================================
+-- OrderFundAllocations Table (Allocate funds to procurement orders)
+CREATE TABLE [dbo].[OrderFundAllocations] (
+    [allocation_id] [int] IDENTITY(1,1) NOT NULL,
+    [order_id] [int] NOT NULL,
+    [fund_id] [int] NOT NULL,
+    [allocation_amount] [decimal](18, 2) NOT NULL,
+    [percentage] [decimal](5, 2) NULL, -- Percentage of order total
+    [status] [nvarchar](50) NOT NULL DEFAULT 'Active',
+    [created_by] [int] NOT NULL,
+    [created_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    [last_modified] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_OrderFundAllocations] PRIMARY KEY CLUSTERED ([allocation_id]),
+    CONSTRAINT [FK_OrderFundAllocations_Order] FOREIGN KEY ([order_id]) REFERENCES [dbo].[PendingOrders]([order_id]),
+    CONSTRAINT [FK_OrderFundAllocations_Fund] FOREIGN KEY ([fund_id]) REFERENCES [dbo].[SponsorFunds]([fund_id]),
+    CONSTRAINT [FK_OrderFundAllocations_CreatedBy] FOREIGN KEY ([created_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [UQ_OrderFundAllocations_OrderFund] UNIQUE ([order_id], [fund_id]),
+    CONSTRAINT [CK_OrderFundAllocations_Status] CHECK ([status] IN ('Active', 'Inactive', 'Cancelled')),
+    CONSTRAINT [CK_OrderFundAllocations_Amounts] CHECK ([allocation_amount] > 0),
+    CONSTRAINT [CK_OrderFundAllocations_Percentage] CHECK ([percentage] IS NULL OR ([percentage] >= 0 AND [percentage] <= 100))
+) ON [PRIMARY]
+GO
 
--- Program Indexes
-CREATE NONCLUSTERED INDEX [IDX_Programs_Name] ON [dbo].[Programs] ([program_name]) INCLUDE ([program_code], [is_active])
-CREATE NONCLUSTERED INDEX [IDX_Programs_Active] ON [dbo].[Programs] ([is_active]) INCLUDE ([program_name], [program_code])
+-- ProcurementVendors Table (Vendor management)
+CREATE TABLE [dbo].[ProcurementVendors] (
+    [vendor_id] [int] IDENTITY(1,1) NOT NULL,
+    [program_id] [int] NOT NULL,
+    [vendor_name] [nvarchar](255) NOT NULL,
+    [vendor_code] [nvarchar](50) NOT NULL,
+    [vendor_type] [nvarchar](100) NULL, -- Supplier, Contractor, Service Provider, etc.
+    [primary_contact_name] [nvarchar](255) NULL,
+    [primary_contact_email] [nvarchar](255) NULL,
+    [primary_contact_phone] [nvarchar](50) NULL,
+    [billing_address] [nvarchar](max) NULL,
+    [shipping_address] [nvarchar](max) NULL,
+    [tax_id] [nvarchar](50) NULL,
+    [payment_terms] [nvarchar](255) NULL,
+    [preferred_payment_method] [nvarchar](100) NULL,
+    [credit_limit] [decimal](18, 2) NULL,
+    [performance_rating] [decimal](3, 2) NULL, -- 1.00 to 5.00
+    [certification_requirements] [nvarchar](max) NULL,
+    [capabilities] [nvarchar](max) NULL,
+    [status] [nvarchar](50) NOT NULL DEFAULT 'Active',
+    [notes] [nvarchar](max) NULL,
+    [created_by] [int] NOT NULL,
+    [created_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    [last_modified] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_ProcurementVendors] PRIMARY KEY CLUSTERED ([vendor_id]),
+    CONSTRAINT [FK_ProcurementVendors_Program] FOREIGN KEY ([program_id]) REFERENCES [dbo].[Programs]([program_id]),
+    CONSTRAINT [FK_ProcurementVendors_CreatedBy] FOREIGN KEY ([created_by]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [UQ_ProcurementVendors_Code] UNIQUE ([program_id], [vendor_code]),
+    CONSTRAINT [CK_ProcurementVendors_Status] CHECK ([status] IN ('Active', 'Inactive', 'Suspended', 'Blacklisted')),
+    CONSTRAINT [CK_ProcurementVendors_Rating] CHECK ([performance_rating] IS NULL OR ([performance_rating] >= 1.0 AND [performance_rating] <= 5.0))
+) ON [PRIMARY]
+GO
 
--- User Indexes
-CREATE NONCLUSTERED INDEX [IDX_Users_Certificate] ON [dbo].[Users] ([certificate_subject]) INCLUDE ([user_name], [display_name])
-CREATE NONCLUSTERED INDEX [IDX_Users_Active] ON [dbo].[Users] ([is_active]) INCLUDE ([user_name], [display_name])
-CREATE NONCLUSTERED INDEX [IDX_Users_LastLogin] ON [dbo].[Users] ([last_login])
+-- ProcurementNotifications Table (Procurement-specific notifications)
+CREATE TABLE [dbo].[ProcurementNotifications] (
+    [notification_id] [int] IDENTITY(1,1) NOT NULL,
+    [user_id] [int] NOT NULL,
+    [notification_type] [nvarchar](100) NOT NULL, -- Fund Expiring, Order Approved, Payment Required, etc.
+    [priority] [nvarchar](20) NOT NULL DEFAULT 'Medium',
+    [title] [nvarchar](255) NOT NULL,
+    [message] [nvarchar](max) NOT NULL,
+    [related_entity_type] [nvarchar](100) NULL, -- Fund, Order, Task, Document, etc.
+    [related_entity_id] [int] NULL,
+    [action_required] [bit] NOT NULL DEFAULT 0,
+    [action_url] [nvarchar](500) NULL,
+    [status] [nvarchar](50) NOT NULL DEFAULT 'Unread',
+    [read_date] [datetime2](7) NULL,
+    [acknowledged_date] [datetime2](7) NULL,
+    [expiration_date] [datetime2](7) NULL,
+    [metadata] [nvarchar](max) NULL, -- JSON for additional data
+    [created_date] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_ProcurementNotifications] PRIMARY KEY CLUSTERED ([notification_id]),
+    CONSTRAINT [FK_ProcurementNotifications_User] FOREIGN KEY ([user_id]) REFERENCES [dbo].[Users]([user_id]),
+    CONSTRAINT [CK_ProcurementNotifications_Priority] CHECK ([priority] IN ('Low', 'Medium', 'High', 'Critical')),
+    CONSTRAINT [CK_ProcurementNotifications_Status] CHECK ([status] IN ('Unread', 'Read', 'Acknowledged', 'Dismissed'))
+) ON [PRIMARY]
+GO
 
--- Project Indexes
-CREATE NONCLUSTERED INDEX [IDX_Projects_Program] ON [dbo].[Projects] ([program_id]) INCLUDE ([project_name], [status])
-CREATE NONCLUSTERED INDEX [IDX_Projects_Status] ON [dbo].[Projects] ([status]) INCLUDE ([project_name], [priority])
-CREATE NONCLUSTERED INDEX [IDX_Projects_Manager] ON [dbo].[Projects] ([project_manager_id])
-CREATE NONCLUSTERED INDEX [IDX_Projects_Dates] ON [dbo].[Projects] ([project_start_date], [project_end_date])
+-- ProcurementAuditLog Table (Audit trail for fund transactions)
+CREATE TABLE [dbo].[ProcurementAuditLog] (
+    [audit_id] [int] IDENTITY(1,1) NOT NULL,
+    [user_id] [int] NOT NULL,
+    [action_type] [nvarchar](100) NOT NULL, -- CREATE, UPDATE, DELETE, ALLOCATE, SPEND, TRANSFER, etc.
+    [entity_type] [nvarchar](100) NOT NULL, -- Sponsor, Fund, Task, Order, Document, etc.
+    [entity_id] [int] NOT NULL,
+    [old_values] [nvarchar](max) NULL, -- JSON of previous values
+    [new_values] [nvarchar](max) NULL, -- JSON of new values
+    [amount_involved] [decimal](18, 2) NULL,
+    [description] [nvarchar](255) NOT NULL,
+    [ip_address] [nvarchar](45) NULL,
+    [user_agent] [nvarchar](500) NULL,
+    [session_id] [nvarchar](100) NULL,
+    [timestamp] [datetime2](7) NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT [PK_ProcurementAuditLog] PRIMARY KEY CLUSTERED ([audit_id]),
+    CONSTRAINT [FK_ProcurementAuditLog_User] FOREIGN KEY ([user_id]) REFERENCES [dbo].[Users]([user_id])
+) ON [PRIMARY]
+GO
 
--- Task Indexes
-CREATE NONCLUSTERED INDEX [IDX_Tasks_AssignedTo] ON [dbo].[Tasks] ([assigned_to]) INCLUDE ([status], [priority], [due_date])
-CREATE NONCLUSTERED INDEX [IDX_Tasks_Status] ON [dbo].[Tasks] ([status]) INCLUDE ([assigned_to], [priority])
-CREATE NONCLUSTERED INDEX [IDX_Tasks_Project] ON [dbo].[Tasks] ([project_id]) INCLUDE ([assigned_to], [status])
-CREATE NONCLUSTERED INDEX [IDX_Tasks_DueDate] ON [dbo].[Tasks] ([due_date]) INCLUDE ([assigned_to], [status])
-
--- Notification Indexes
-CREATE NONCLUSTERED INDEX [IDX_Notifications_User] ON [dbo].[Notifications] ([user_id]) INCLUDE ([is_read], [category], [priority])
-CREATE NONCLUSTERED INDEX [IDX_Notifications_Unread] ON [dbo].[Notifications] ([user_id], [is_read]) INCLUDE ([category], [priority], [date_created])
-CREATE NONCLUSTERED INDEX [IDX_Notifications_Category] ON [dbo].[Notifications] ([category]) INCLUDE ([user_id], [is_read])
-
--- Access Control Indexes
-CREATE NONCLUSTERED INDEX [IDX_ProgramAccess_User] ON [dbo].[ProgramAccess] ([user_id]) INCLUDE ([program_id], [access_level], [is_active])
-CREATE NONCLUSTERED INDEX [IDX_ProjectAccess_User] ON [dbo].[ProjectAccess] ([user_id]) INCLUDE ([project_id], [access_level], [is_active])
-CREATE NONCLUSTERED INDEX [IDX_UserRoles_User] ON [dbo].[UserRoles] ([user_id]) INCLUDE ([role_id], [program_id], [project_id], [is_active])
-
--- Inventory Indexes
-CREATE NONCLUSTERED INDEX [IDX_InventoryItems_PartNumber] ON [dbo].[InventoryItems] ([part_number]) INCLUDE ([item_name], [current_stock_level])
-CREATE NONCLUSTERED INDEX [IDX_InventoryItems_Category] ON [dbo].[InventoryItems] ([category]) INCLUDE ([item_name], [current_stock_level])
-CREATE NONCLUSTERED INDEX [IDX_InventoryItems_StockLevel] ON [dbo].[InventoryItems] ([current_stock_level]) INCLUDE ([reorder_point])
-
--- Cart/Procurement Indexes
-CREATE NONCLUSTERED INDEX [IDX_CartItems_User] ON [dbo].[CartItems] ([user_id]) INCLUDE ([inventory_item_id], [quantity_requested], [date_added])
-CREATE NONCLUSTERED INDEX [IDX_CartItems_InventoryItem] ON [dbo].[CartItems] ([inventory_item_id]) INCLUDE ([user_id], [quantity_requested])
-CREATE NONCLUSTERED INDEX [IDX_PendingOrders_User] ON [dbo].[PendingOrders] ([user_id]) INCLUDE ([status], [date_created])
-CREATE NONCLUSTERED INDEX [IDX_PendingOrders_Project] ON [dbo].[PendingOrders] ([project_id]) INCLUDE ([status], [date_created])
-CREATE NONCLUSTERED INDEX [IDX_PendingOrders_Status] ON [dbo].[PendingOrders] ([status]) INCLUDE ([user_id], [project_id])
-CREATE NONCLUSTERED INDEX [IDX_PendingOrderItems_Order] ON [dbo].[PendingOrderItems] ([order_id]) INCLUDE ([inventory_item_id], [quantity_ordered])
-CREATE NONCLUSTERED INDEX [IDX_PendingOrderItems_InventoryItem] ON [dbo].[PendingOrderItems] ([inventory_item_id]) INCLUDE ([order_id], [quantity_ordered])
-
--- Transaction Indexes
-CREATE NONCLUSTERED INDEX [IDX_InventoryTransactions_Item] ON [dbo].[InventoryTransactions] ([inventory_item_id]) INCLUDE ([transaction_timestamp], [transaction_type])
-CREATE NONCLUSTERED INDEX [IDX_InventoryTransactions_Date] ON [dbo].[InventoryTransactions] ([transaction_timestamp]) INCLUDE ([inventory_item_id], [transaction_type])
-CREATE NONCLUSTERED INDEX [IDX_InventoryTransactions_User] ON [dbo].[InventoryTransactions] ([user_id]) INCLUDE ([transaction_timestamp], [transaction_type])
-
--- Audit Indexes
-CREATE NONCLUSTERED INDEX [IDX_AuditLog_User] ON [dbo].[AuditLog] ([user_id]) INCLUDE ([action_type], [date_created])
-CREATE NONCLUSTERED INDEX [IDX_AuditLog_Entity] ON [dbo].[AuditLog] ([entity_type], [entity_id]) INCLUDE ([action_type], [date_created])
-CREATE NONCLUSTERED INDEX [IDX_AuditLog_Date] ON [dbo].[AuditLog] ([date_created]) INCLUDE ([user_id], [action_type])
-
--- =============================================
--- FOREIGN KEY CONSTRAINTS
--- =============================================
-
--- Program Dependencies
-ALTER TABLE [dbo].[Projects] ADD CONSTRAINT [FK_Projects_Programs] 
-    FOREIGN KEY([program_id]) REFERENCES [dbo].[Programs] ([program_id])
-
--- User Dependencies
-ALTER TABLE [dbo].[Projects] ADD CONSTRAINT [FK_Projects_ProjectManager] 
-    FOREIGN KEY([project_manager_id]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[Projects] ADD CONSTRAINT [FK_Projects_CreatedBy] 
-    FOREIGN KEY([created_by]) REFERENCES [dbo].[Users] ([user_id])
-
--- RBAC Dependencies
-ALTER TABLE [dbo].[UserRoles] ADD CONSTRAINT [FK_UserRoles_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[UserRoles] ADD CONSTRAINT [FK_UserRoles_Roles] 
-    FOREIGN KEY([role_id]) REFERENCES [dbo].[Roles] ([role_id])
-
-ALTER TABLE [dbo].[UserRoles] ADD CONSTRAINT [FK_UserRoles_Programs] 
-    FOREIGN KEY([program_id]) REFERENCES [dbo].[Programs] ([program_id])
-
-ALTER TABLE [dbo].[UserRoles] ADD CONSTRAINT [FK_UserRoles_Projects] 
-    FOREIGN KEY([project_id]) REFERENCES [dbo].[Projects] ([project_id])
-
-ALTER TABLE [dbo].[UserRoles] ADD CONSTRAINT [FK_UserRoles_AssignedBy] 
-    FOREIGN KEY([assigned_by]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[ProgramAccess] ADD CONSTRAINT [FK_ProgramAccess_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[ProgramAccess] ADD CONSTRAINT [FK_ProgramAccess_Programs] 
-    FOREIGN KEY([program_id]) REFERENCES [dbo].[Programs] ([program_id])
-
-ALTER TABLE [dbo].[ProgramAccess] ADD CONSTRAINT [FK_ProgramAccess_GrantedBy] 
-    FOREIGN KEY([granted_by]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[ProjectAccess] ADD CONSTRAINT [FK_ProjectAccess_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[ProjectAccess] ADD CONSTRAINT [FK_ProjectAccess_Projects] 
-    FOREIGN KEY([project_id]) REFERENCES [dbo].[Projects] ([project_id])
-
-ALTER TABLE [dbo].[ProjectAccess] ADD CONSTRAINT [FK_ProjectAccess_GrantedBy] 
-    FOREIGN KEY([granted_by]) REFERENCES [dbo].[Users] ([user_id])
-
--- Task Dependencies
-ALTER TABLE [dbo].[Tasks] ADD CONSTRAINT [FK_Tasks_Projects] 
-    FOREIGN KEY([project_id]) REFERENCES [dbo].[Projects] ([project_id])
-
-ALTER TABLE [dbo].[Tasks] ADD CONSTRAINT [FK_Tasks_ProjectSteps] 
-    FOREIGN KEY([step_id]) REFERENCES [dbo].[ProjectSteps] ([step_id])
-
-ALTER TABLE [dbo].[Tasks] ADD CONSTRAINT [FK_Tasks_TrackedItems] 
-    FOREIGN KEY([tracked_item_id]) REFERENCES [dbo].[TrackedItems] ([item_id])
-
-ALTER TABLE [dbo].[Tasks] ADD CONSTRAINT [FK_Tasks_AssignedTo] 
-    FOREIGN KEY([assigned_to]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[Tasks] ADD CONSTRAINT [FK_Tasks_AssignedBy] 
-    FOREIGN KEY([assigned_by]) REFERENCES [dbo].[Users] ([user_id])
-
--- Notification Dependencies
-ALTER TABLE [dbo].[Notifications] ADD CONSTRAINT [FK_Notifications_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id])
-
--- Audit Dependencies
-ALTER TABLE [dbo].[AuditLog] ADD CONSTRAINT [FK_AuditLog_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id])
-
--- Existing Table Dependencies
-ALTER TABLE [dbo].[AttributeDefinitions] ADD CONSTRAINT [FK_AttributeDefinitions_Projects] 
-    FOREIGN KEY([project_id]) REFERENCES [dbo].[Projects] ([project_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[ProjectSteps] ADD CONSTRAINT [FK_ProjectSteps_Projects] 
-    FOREIGN KEY([project_id]) REFERENCES [dbo].[Projects] ([project_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[StepInventoryRequirements] ADD CONSTRAINT [FK_StepInventoryRequirements_ProjectSteps] 
-    FOREIGN KEY([step_id]) REFERENCES [dbo].[ProjectSteps] ([step_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[StepInventoryRequirements] ADD CONSTRAINT [FK_StepInventoryRequirements_InventoryItems] 
-    FOREIGN KEY([inventory_item_id]) REFERENCES [dbo].[InventoryItems] ([inventory_item_id]) ON UPDATE CASCADE
-
-ALTER TABLE [dbo].[TrackedItems] ADD CONSTRAINT [FK_TrackedItems_Projects] 
-    FOREIGN KEY([project_id]) REFERENCES [dbo].[Projects] ([project_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[TrackedItems] ADD CONSTRAINT [FK_TrackedItems_CreatedBy] 
-    FOREIGN KEY([created_by]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[ItemAttributeValues] ADD CONSTRAINT [FK_ItemAttributeValues_TrackedItems] 
-    FOREIGN KEY([item_id]) REFERENCES [dbo].[TrackedItems] ([item_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[ItemAttributeValues] ADD CONSTRAINT [FK_ItemAttributeValues_AttributeDefinitions] 
-    FOREIGN KEY([attribute_definition_id]) REFERENCES [dbo].[AttributeDefinitions] ([attribute_definition_id])
-
-ALTER TABLE [dbo].[ItemAttributeValues] ADD CONSTRAINT [FK_ItemAttributeValues_SetBy] 
-    FOREIGN KEY([set_by]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[TrackedItemStepProgress] ADD CONSTRAINT [FK_TrackedItemStepProgress_TrackedItems] 
-    FOREIGN KEY([item_id]) REFERENCES [dbo].[TrackedItems] ([item_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[TrackedItemStepProgress] ADD CONSTRAINT [FK_TrackedItemStepProgress_ProjectSteps] 
-    FOREIGN KEY([step_id]) REFERENCES [dbo].[ProjectSteps] ([step_id])
-
-ALTER TABLE [dbo].[TrackedItemStepProgress] ADD CONSTRAINT [FK_TrackedItemStepProgress_AssignedTo] 
-    FOREIGN KEY([assigned_to]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[TrackedItemStepProgress] ADD CONSTRAINT [FK_TrackedItemStepProgress_ApprovedBy] 
-    FOREIGN KEY([approved_by]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[InventoryTransactions] ADD CONSTRAINT [FK_InventoryTransactions_InventoryItems] 
-    FOREIGN KEY([inventory_item_id]) REFERENCES [dbo].[InventoryItems] ([inventory_item_id]) ON UPDATE CASCADE
-
-ALTER TABLE [dbo].[InventoryTransactions] ADD CONSTRAINT [FK_InventoryTransactions_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[InventoryTransactions] ADD CONSTRAINT [FK_InventoryTransactions_ProjectSteps] 
-    FOREIGN KEY([step_id]) REFERENCES [dbo].[ProjectSteps] ([step_id])
-
-ALTER TABLE [dbo].[InventoryTransactions] ADD CONSTRAINT [FK_InventoryTransactions_TrackedItems] 
-    FOREIGN KEY([tracked_item_id]) REFERENCES [dbo].[TrackedItems] ([item_id]) ON UPDATE CASCADE ON DELETE SET NULL
-
-ALTER TABLE [dbo].[InventoryItems] ADD CONSTRAINT [FK_InventoryItems_CreatedBy] 
-    FOREIGN KEY([created_by]) REFERENCES [dbo].[Users] ([user_id])
-
--- Cart/Procurement Dependencies
-ALTER TABLE [dbo].[CartItems] ADD CONSTRAINT [FK_CartItems_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[CartItems] ADD CONSTRAINT [FK_CartItems_InventoryItems] 
-    FOREIGN KEY([inventory_item_id]) REFERENCES [dbo].[InventoryItems] ([inventory_item_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[PendingOrders] ADD CONSTRAINT [FK_PendingOrders_Users] 
-    FOREIGN KEY([user_id]) REFERENCES [dbo].[Users] ([user_id]) ON UPDATE CASCADE
-
-ALTER TABLE [dbo].[PendingOrders] ADD CONSTRAINT [FK_PendingOrders_Projects] 
-    FOREIGN KEY([project_id]) REFERENCES [dbo].[Projects] ([project_id]) ON UPDATE CASCADE
-
-ALTER TABLE [dbo].[PendingOrders] ADD CONSTRAINT [FK_PendingOrders_ApprovedBy] 
-    FOREIGN KEY([approved_by]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[PendingOrders] ADD CONSTRAINT [FK_PendingOrders_OrderedBy] 
-    FOREIGN KEY([ordered_by]) REFERENCES [dbo].[Users] ([user_id])
-
-ALTER TABLE [dbo].[PendingOrderItems] ADD CONSTRAINT [FK_PendingOrderItems_PendingOrders] 
-    FOREIGN KEY([order_id]) REFERENCES [dbo].[PendingOrders] ([order_id]) ON UPDATE CASCADE ON DELETE CASCADE
-
-ALTER TABLE [dbo].[PendingOrderItems] ADD CONSTRAINT [FK_PendingOrderItems_InventoryItems] 
-    FOREIGN KEY([inventory_item_id]) REFERENCES [dbo].[InventoryItems] ([inventory_item_id]) ON UPDATE CASCADE
-
+-- Add indexes for better performance
+CREATE INDEX [IX_Sponsors_Program] ON [dbo].[Sponsors]([program_id]);
+CREATE INDEX [IX_SponsorFunds_Sponsor] ON [dbo].[SponsorFunds]([sponsor_id]);
+CREATE INDEX [IX_SponsorFunds_Status] ON [dbo].[SponsorFunds]([status]);
+CREATE INDEX [IX_SponsorFunds_ExpirationDate] ON [dbo].[SponsorFunds]([expiration_date]);
+CREATE INDEX [IX_FundingDocuments_Fund] ON [dbo].[FundingDocuments]([fund_id]);
+CREATE INDEX [IX_FundingDocuments_Sponsor] ON [dbo].[FundingDocuments]([sponsor_id]);
+CREATE INDEX [IX_FundingDocuments_ExpirationDate] ON [dbo].[FundingDocuments]([expiration_date]);
+CREATE INDEX [IX_TaskFundAllocations_Task] ON [dbo].[TaskFundAllocations]([task_id]);
+CREATE INDEX [IX_TaskFundAllocations_Fund] ON [dbo].[TaskFundAllocations]([fund_id]);
+CREATE INDEX [IX_TaskFundAllocations_CrossPayment] ON [dbo].[TaskFundAllocations]([is_cross_payment]);
+CREATE INDEX [IX_OrderFundAllocations_Order] ON [dbo].[OrderFundAllocations]([order_id]);
+CREATE INDEX [IX_OrderFundAllocations_Fund] ON [dbo].[OrderFundAllocations]([fund_id]);
+CREATE INDEX [IX_ProcurementVendors_Program] ON [dbo].[ProcurementVendors]([program_id]);
+CREATE INDEX [IX_ProcurementNotifications_User] ON [dbo].[ProcurementNotifications]([user_id]);
+CREATE INDEX [IX_ProcurementNotifications_Status] ON [dbo].[ProcurementNotifications]([status]);
+CREATE INDEX [IX_ProcurementAuditLog_User] ON [dbo].[ProcurementAuditLog]([user_id]);
+CREATE INDEX [IX_ProcurementAuditLog_EntityType] ON [dbo].[ProcurementAuditLog]([entity_type], [entity_id]);
+CREATE INDEX [IX_ProcurementAuditLog_Timestamp] ON [dbo].[ProcurementAuditLog]([timestamp]);
 GO
 
 -- =============================================
--- SAMPLE DATA FOR IMMEDIATE FUNCTIONALITY
+-- PROCUREMENT STORED PROCEDURES
 -- =============================================
 
--- Insert Sample Program (Primary Program)
-INSERT INTO [dbo].[Programs] (program_name, program_code, program_description, created_by, program_manager)
-VALUES 
-    ('Operations', 'OPS', 'Production management and inventory tracking operations', 'System', 'System')
-
--- Optional: Insert additional programs for future expansion
--- INSERT INTO [dbo].[Programs] (program_name, program_code, program_description, created_by, program_manager)
--- VALUES 
---     ('Manufacturing Operations', 'MFG', 'General manufacturing and production operations', 'System', 'System'),
---     ('Quality Assurance', 'QA', 'Quality control and assurance operations', 'System', 'System'),
---     ('Research & Development', 'RND', 'Research and development projects', 'System', 'System')
-
--- Insert System Roles
-INSERT INTO [dbo].[Roles] (role_name, role_description, role_level, permissions)
-VALUES 
-    ('System Administrator', 'Full system access and administration', 'System', '{"all": true}'),
-    ('Program Manager', 'Manage entire programs and their projects', 'Program', '{"program_admin": true, "project_create": true, "user_manage": true}'),
-    ('Project Manager', 'Manage individual projects', 'Project', '{"project_admin": true, "task_assign": true, "inventory_manage": true}'),
-    ('Production Technician', 'Execute production tasks and update progress', 'Resource', '{"task_execute": true, "inventory_use": true, "progress_update": true}'),
-    ('Quality Inspector', 'Quality control and inspection tasks', 'Resource', '{"quality_check": true, "approval_grant": true}'),
-    ('Inventory Manager', 'Manage inventory and procurement', 'Resource', '{"inventory_admin": true, "procurement": true}')
-
--- Insert Sample System User (for system operations)
-INSERT INTO [dbo].[Users] (certificate_subject, user_name, display_name, first_name, last_name, initials, is_active, is_system_admin, preferences)
-VALUES 
-    ('CN=System,O=H10CM', 'system', 'System User', 'System', 'User', 'SU', 1, 1, '{"theme": "light", "notifications": true}')
-
-DECLARE @SystemUserId INT = SCOPE_IDENTITY()
-
--- Assign System Admin Role to System User
-INSERT INTO [dbo].[UserRoles] (user_id, role_id, assigned_by)
-SELECT @SystemUserId, role_id, @SystemUserId
-FROM [dbo].[Roles] 
-WHERE role_name = 'System Administrator'
-
--- Insert Sample Inventory Categories and Items
-INSERT INTO [dbo].[InventoryItems] (item_name, part_number, description, category, unit_of_measure, current_stock_level, reorder_point, cost_per_unit, created_by)
-VALUES 
-    ('Aluminum Sheet 6061', 'AL-6061-001', '6061 Aluminum Sheet 12x12x0.125', 'Raw Materials', 'EA', 50, 10, 25.50, @SystemUserId),
-    ('Stainless Steel Bolt M8x25', 'SS-M8X25-001', 'M8x25mm Stainless Steel Bolt', 'Fasteners', 'EA', 500, 100, 0.75, @SystemUserId),
-    ('Aircraft Grade Rivet', 'RIV-AG-001', '3/16 Aircraft Grade Aluminum Rivet', 'Fasteners', 'EA', 1000, 200, 0.15, @SystemUserId),
-    ('Cutting Oil', 'OIL-CUT-001', 'High Performance Cutting Fluid', 'Supplies', 'L', 25, 5, 12.00, @SystemUserId),
-    ('Safety Glasses', 'PPE-SG-001', 'ANSI Z87.1 Safety Glasses', 'PPE', 'EA', 20, 5, 8.50, @SystemUserId)
-
--- Create Sample Project in Operations Program
-DECLARE @OpsProgramId INT = (SELECT program_id FROM [dbo].[Programs] WHERE program_code = 'OPS')
-
-INSERT INTO [dbo].[Projects] (program_id, project_name, project_description, status, priority, created_by)
-VALUES 
-    (@OpsProgramId, 'Production Run #001', 'Initial production batch with standard manufacturing process', 'Active', 'High', @SystemUserId)
-
-DECLARE @ProjectId INT = SCOPE_IDENTITY()
-
--- Create Sample Project Steps for Production
-INSERT INTO [dbo].[ProjectSteps] (project_id, step_code, step_name, step_description, step_order, estimated_duration_hours)
-VALUES 
-    (@ProjectId, 'PREP', 'Material Preparation', 'Prepare and inspect raw materials', 1, 4.0),
-    (@ProjectId, 'PROC', 'Processing', 'Execute primary manufacturing process', 2, 6.0),
-    (@ProjectId, 'ASSY', 'Assembly', 'Assemble components per specifications', 3, 3.0),
-    (@ProjectId, 'TEST', 'Testing & Validation', 'Perform quality testing and validation', 4, 2.0),
-    (@ProjectId, 'PACK', 'Packaging & Shipping', 'Final packaging and preparation for shipment', 5, 1.0)
-
--- Add Inventory Requirements for Steps
-DECLARE @StepId INT = (SELECT step_id FROM [dbo].[ProjectSteps] WHERE project_id = @ProjectId AND step_code = 'PREP')
-DECLARE @AluminumId INT = (SELECT inventory_item_id FROM [dbo].[InventoryItems] WHERE part_number = 'AL-6061-001')
-
-INSERT INTO [dbo].[StepInventoryRequirements] (step_id, inventory_item_id, quantity_required)
-VALUES (@StepId, @AluminumId, 2)
-
--- Insert Sample Notifications
-INSERT INTO [dbo].[Notifications] (user_id, category, title, message, priority, is_actionable, action_url, action_text, related_entity_type, related_entity_id)
-VALUES 
-    (@SystemUserId, 'system', 'Database Initialized', 'H10CM database has been successfully initialized with sample data', 'Normal', 0, NULL, NULL, 'System', NULL),
-    (@SystemUserId, 'inventory', 'Low Stock Alert', 'Cutting Oil inventory is running low', 'High', 1, '/inventory', 'View Inventory', 'InventoryItem', (SELECT inventory_item_id FROM [dbo].[InventoryItems] WHERE part_number = 'OIL-CUT-001'))
-
-PRINT 'H10CM Database Created Successfully!'
-PRINT 'Sample Data Inserted:'
-PRINT '- 4 Programs (Aerospace, Manufacturing, QA, R&D)'
-PRINT '- 6 System Roles'
-PRINT '- 1 System User'
-PRINT '- 5 Sample Inventory Items'
-PRINT '- 1 Sample Project with 5 Steps'
-PRINT '- Sample Notifications'
-PRINT ''
-PRINT 'Next Steps:'
-PRINT '1. Create actual users through the application'
-PRINT '2. Assign program access to users'
-PRINT '3. Create additional projects and tasks'
-PRINT '4. Configure inventory items for your specific needs'
-
-GO
--- =============================================
--- MISSING STORED PROCEDURES FROM LEGACY API
--- =============================================
-
--- Get Projects (Primary procedure for dashboard)
-CREATE PROCEDURE [dbo].[usp_GetProjects]
+-- Create or update sponsor
+CREATE PROCEDURE [dbo].[usp_SaveSponsor]
+    @SponsorJson NVARCHAR(MAX)
 AS
 BEGIN
     SET NOCOUNT ON;
     
-    SELECT 
-        p.project_id,
-        p.project_name,
-        p.project_description,
-        p.status,
-        p.priority,
-        p.date_created,
-        p.last_modified,
-        p.project_start_date,
-        p.project_end_date,
-        p.estimated_completion_date,
-        p.actual_completion_date,
-        p.budget,
-        p.notes,
-        pr.program_name,
-        pr.program_code,
-        pm.display_name AS project_manager_name,
-        cb.display_name AS created_by_name,
-        (SELECT COUNT(*) FROM dbo.ProjectSteps ps WHERE ps.project_id = p.project_id) AS total_steps,
-        (SELECT COUNT(*) FROM dbo.TrackedItems ti WHERE ti.project_id = p.project_id) AS total_tracked_items,
-        (SELECT COUNT(*) FROM dbo.Tasks t WHERE t.project_id = p.project_id) AS total_tasks
-    FROM dbo.Projects p
-    LEFT JOIN dbo.Programs pr ON p.program_id = pr.program_id
-    LEFT JOIN dbo.Users pm ON p.project_manager_id = pm.user_id
-    LEFT JOIN dbo.Users cb ON p.created_by = cb.user_id
-    ORDER BY p.last_modified DESC;
-END;
-GO
-
--- Save Project (Insert/Update)
-CREATE PROCEDURE [dbo].[usp_SaveProject]
-    @ProjectJson NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Parse JSON input
-    DECLARE @project_id INT,
-            @program_id INT,
-            @project_name NVARCHAR(100),
-            @project_description NVARCHAR(MAX),
-            @status NVARCHAR(50),
-            @priority NVARCHAR(20),
-            @project_manager_id INT,
-            @project_start_date DATE,
-            @project_end_date DATE,
-            @estimated_completion_date DATE,
-            @budget DECIMAL(18,2),
-            @notes NVARCHAR(MAX),
-            @created_by INT;
-    
-    -- Extract values from JSON
-    SELECT 
-        @project_id = JSON_VALUE(@ProjectJson, '$.project_id'),
-        @program_id = JSON_VALUE(@ProjectJson, '$.program_id'),
-        @project_name = JSON_VALUE(@ProjectJson, '$.project_name'),
-        @project_description = JSON_VALUE(@ProjectJson, '$.project_description'),
-        @status = ISNULL(JSON_VALUE(@ProjectJson, '$.status'), 'Planning'),
-        @priority = ISNULL(JSON_VALUE(@ProjectJson, '$.priority'), 'Medium'),
-        @project_manager_id = JSON_VALUE(@ProjectJson, '$.project_manager_id'),
-        @project_start_date = JSON_VALUE(@ProjectJson, '$.project_start_date'),
-        @project_end_date = JSON_VALUE(@ProjectJson, '$.project_end_date'),
-        @estimated_completion_date = JSON_VALUE(@ProjectJson, '$.estimated_completion_date'),
-        @budget = JSON_VALUE(@ProjectJson, '$.budget'),
-        @notes = JSON_VALUE(@ProjectJson, '$.notes'),
-        @created_by = JSON_VALUE(@ProjectJson, '$.created_by');
-    
-    -- Validate required fields
-    IF @program_id IS NULL OR @project_name IS NULL OR @project_name = '' OR @created_by IS NULL
-    BEGIN
-        RAISERROR('Required fields missing: program_id, project_name, and created_by are required.', 16, 1);
-        RETURN;
-    END
-    
-    IF @project_id IS NULL
-    BEGIN
-        -- Insert new project
-        INSERT INTO dbo.Projects (
-            program_id, project_name, project_description, status, priority,
-            project_manager_id, project_start_date, project_end_date,
-            estimated_completion_date, budget, notes, created_by
-        )
-        VALUES (
-            @program_id, @project_name, @project_description, @status, @priority,
-            @project_manager_id, @project_start_date, @project_end_date,
-            @estimated_completion_date, @budget, @notes, @created_by
-        );
-        
-        SET @project_id = SCOPE_IDENTITY();
-    END
-    ELSE
-    BEGIN
-        -- Update existing project
-        UPDATE dbo.Projects
-        SET 
-            program_id = @program_id,
-            project_name = @project_name,
-            project_description = @project_description,
-            status = @status,
-            priority = @priority,
-            project_manager_id = @project_manager_id,
-            project_start_date = @project_start_date,
-            project_end_date = @project_end_date,
-            estimated_completion_date = @estimated_completion_date,
-            budget = @budget,
-            notes = @notes,
-            last_modified = GETDATE()
-        WHERE project_id = @project_id;
-    END
-    
-    -- Return the project
-    SELECT 
-        p.project_id,
-        p.project_name,
-        p.project_description,
-        p.status,
-        p.priority,
-        p.date_created,
-        p.last_modified,
-        p.project_start_date,
-        p.project_end_date,
-        p.estimated_completion_date,
-        p.actual_completion_date,
-        p.budget,
-        p.notes,
-        pr.program_name,
-        pr.program_code
-    FROM dbo.Projects p
-    LEFT JOIN dbo.Programs pr ON p.program_id = pr.program_id
-    WHERE p.project_id = @project_id;
-END;
-GO
-
--- Save Task (Insert/Update)
-CREATE PROCEDURE [dbo].[usp_SaveTask]
-    @TaskJson NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Parse JSON input
-    DECLARE @task_id INT,
-            @project_id INT,
-            @step_id INT,
-            @tracked_item_id INT,
-            @task_title NVARCHAR(255),
-            @task_description NVARCHAR(MAX),
-            @assigned_to INT,
-            @assigned_by INT,
-            @priority NVARCHAR(20),
-            @status NVARCHAR(50),
-            @due_date DATETIME2,
-            @estimated_hours DECIMAL(5,2),
-            @notes NVARCHAR(MAX);
-    
-    -- Extract values from JSON
-    SELECT 
-        @task_id = JSON_VALUE(@TaskJson, '$.task_id'),
-        @project_id = JSON_VALUE(@TaskJson, '$.project_id'),
-        @step_id = JSON_VALUE(@TaskJson, '$.step_id'),
-        @tracked_item_id = JSON_VALUE(@TaskJson, '$.tracked_item_id'),
-        @task_title = JSON_VALUE(@TaskJson, '$.task_title'),
-        @task_description = JSON_VALUE(@TaskJson, '$.task_description'),
-        @assigned_to = JSON_VALUE(@TaskJson, '$.assigned_to'),
-        @assigned_by = JSON_VALUE(@TaskJson, '$.assigned_by'),
-        @priority = ISNULL(JSON_VALUE(@TaskJson, '$.priority'), 'Medium'),
-        @status = ISNULL(JSON_VALUE(@TaskJson, '$.status'), 'Pending'),
-        @due_date = JSON_VALUE(@TaskJson, '$.due_date'),
-        @estimated_hours = JSON_VALUE(@TaskJson, '$.estimated_hours'),
-        @notes = JSON_VALUE(@TaskJson, '$.notes');
-    
-    -- Validate required fields
-    IF @task_title IS NULL OR @task_title = '' OR @assigned_to IS NULL OR @assigned_by IS NULL
-    BEGIN
-        RAISERROR('Required fields missing: task_title, assigned_to, and assigned_by are required.', 16, 1);
-        RETURN;
-    END
-    
-    IF @task_id IS NULL
-    BEGIN
-        -- Insert new task
-        INSERT INTO dbo.Tasks (
-            project_id, step_id, tracked_item_id, task_title, task_description,
-            assigned_to, assigned_by, priority, status, due_date, estimated_hours, notes
-        )
-        VALUES (
-            @project_id, @step_id, @tracked_item_id, @task_title, @task_description,
-            @assigned_to, @assigned_by, @priority, @status, @due_date, @estimated_hours, @notes
-        );
-        
-        SET @task_id = SCOPE_IDENTITY();
-        
-        -- Create notification for task assignment
-        INSERT INTO dbo.Notifications (
-            user_id, category, title, message, priority, is_actionable, 
-            action_url, action_text, related_entity_type, related_entity_id
-        )
-        SELECT 
-            @assigned_to,
-            'user',
-            'New Task Assigned',
-            'You have been assigned a new task: ' + @task_title,
-            @priority,
-            1,
-            '/my-tasks',
-            'View Task',
-            'Task',
-            @task_id;
-    END
-    ELSE
-    BEGIN
-        -- Update existing task
-        UPDATE dbo.Tasks
-        SET 
-            project_id = @project_id,
-            step_id = @step_id,
-            tracked_item_id = @tracked_item_id,
-            task_title = @task_title,
-            task_description = @task_description,
-            assigned_to = @assigned_to,
-            priority = @priority,
-            status = @status,
-            due_date = @due_date,
-            estimated_hours = @estimated_hours,
-            notes = @notes,
-            last_modified = GETDATE()
-        WHERE task_id = @task_id;
-    END
-    
-    -- Return the task
-    SELECT 
-        t.task_id,
-        t.task_title,
-        t.task_description,
-        t.priority,
-        t.status,
-        t.due_date,
-        t.estimated_hours,
-        t.date_created,
-        t.last_modified,
-        assigned_user.display_name AS assigned_to_name,
-        assigner.display_name AS assigned_by_name,
-        p.project_name
-    FROM dbo.Tasks t
-    LEFT JOIN dbo.Users assigned_user ON t.assigned_to = assigned_user.user_id
-    LEFT JOIN dbo.Users assigner ON t.assigned_by = assigner.user_id
-    LEFT JOIN dbo.Projects p ON t.project_id = p.project_id
-    WHERE t.task_id = @task_id;
-END;
-GO
-
--- Save Inventory Item (Insert/Update)
-CREATE PROCEDURE [dbo].[usp_SaveInventoryItem]
-    @InventoryItemJson NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Parse JSON input
-    DECLARE @inventory_item_id INT,
-            @item_name NVARCHAR(255),
-            @part_number NVARCHAR(100),
-            @description NVARCHAR(MAX),
-            @category NVARCHAR(100),
-            @unit_of_measure NVARCHAR(50),
-            @current_stock_level DECIMAL(18,4),
-            @reorder_point DECIMAL(18,4),
-            @max_stock_level DECIMAL(18,4),
-            @supplier_info NVARCHAR(MAX),
-            @cost_per_unit DECIMAL(18,2),
-            @location NVARCHAR(255),
-            @program_id INT,
-            @created_by INT;
-    
-    -- Extract values from JSON
-    SELECT 
-        @inventory_item_id = JSON_VALUE(@InventoryItemJson, '$.inventory_item_id'),
-        @item_name = JSON_VALUE(@InventoryItemJson, '$.item_name'),
-        @part_number = JSON_VALUE(@InventoryItemJson, '$.part_number'),
-        @description = JSON_VALUE(@InventoryItemJson, '$.description'),
-        @category = JSON_VALUE(@InventoryItemJson, '$.category'),
-        @unit_of_measure = JSON_VALUE(@InventoryItemJson, '$.unit_of_measure'),
-        @current_stock_level = ISNULL(JSON_VALUE(@InventoryItemJson, '$.current_stock_level'), 0),
-        @reorder_point = JSON_VALUE(@InventoryItemJson, '$.reorder_point'),
-        @max_stock_level = JSON_VALUE(@InventoryItemJson, '$.max_stock_level'),
-        @supplier_info = JSON_VALUE(@InventoryItemJson, '$.supplier_info'),
-        @cost_per_unit = JSON_VALUE(@InventoryItemJson, '$.cost_per_unit'),
-        @location = JSON_VALUE(@InventoryItemJson, '$.location'),
-        @program_id = JSON_VALUE(@InventoryItemJson, '$.program_id'),
-        @created_by = JSON_VALUE(@InventoryItemJson, '$.created_by');
-    
-    -- Validate required fields
-    IF @item_name IS NULL OR @item_name = '' OR @unit_of_measure IS NULL OR @unit_of_measure = '' OR @program_id IS NULL OR @created_by IS NULL
-    BEGIN
-        RAISERROR('Required fields missing: item_name, unit_of_measure, program_id, and created_by are required.', 16, 1);
-        RETURN;
-    END
-    
-    -- Check if part_number already exists (if provided)
-    IF @part_number IS NOT NULL AND @part_number != ''
-    BEGIN
-        SELECT @inventory_item_id = inventory_item_id 
-        FROM dbo.InventoryItems 
-        WHERE part_number = @part_number AND program_id = @program_id;
-    END
-    
-    IF @inventory_item_id IS NULL
-    BEGIN
-        -- Insert new inventory item
-        INSERT INTO dbo.InventoryItems (
-            item_name, part_number, description, category, unit_of_measure,
-            current_stock_level, reorder_point, max_stock_level, supplier_info,
-            cost_per_unit, location, program_id, created_by, last_cost_update
-        )
-        VALUES (
-            @item_name, @part_number, @description, @category, @unit_of_measure,
-            @current_stock_level, @reorder_point, @max_stock_level, @supplier_info,
-            @cost_per_unit, @location, @program_id, @created_by, CASE WHEN @cost_per_unit IS NOT NULL THEN GETDATE() END
-        );
-        
-        SET @inventory_item_id = SCOPE_IDENTITY();
-    END
-    ELSE
-    BEGIN
-        -- Update existing inventory item (add to stock level instead of replacing)
-        UPDATE dbo.InventoryItems
-        SET 
-            item_name = @item_name,
-            description = ISNULL(@description, description),
-            category = ISNULL(@category, category),
-            unit_of_measure = @unit_of_measure,
-            current_stock_level = current_stock_level + @current_stock_level,  -- Add to existing stock
-            reorder_point = ISNULL(@reorder_point, reorder_point),
-            max_stock_level = ISNULL(@max_stock_level, max_stock_level),
-            supplier_info = ISNULL(@supplier_info, supplier_info),
-            cost_per_unit = ISNULL(@cost_per_unit, cost_per_unit),
-            location = ISNULL(@location, location),
-            last_modified = GETDATE(),
-            last_cost_update = CASE WHEN @cost_per_unit IS NOT NULL THEN GETDATE() ELSE last_cost_update END
-        WHERE inventory_item_id = @inventory_item_id;
-    END
-    
-    -- Return the inventory item
-    SELECT 
-        inventory_item_id,
-        item_name,
-        part_number,
-        description,
-        category,
-        unit_of_measure,
-        current_stock_level,
-        reorder_point,
-        max_stock_level,
-        supplier_info,
-        cost_per_unit,
-        location,
-        program_id,
-        is_active,
-        date_created,
-        last_modified
-    FROM dbo.InventoryItems
-    WHERE inventory_item_id = @inventory_item_id;
-END;
-GO
-
--- Grant Program Access (RBAC)
-CREATE PROCEDURE [dbo].[usp_GrantProgramAccess]
-    @user_id INT,
-    @program_id INT,
-    @access_level NVARCHAR(50),
-    @granted_by INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Insert or update program access
-    MERGE dbo.ProgramAccess AS target
-    USING (SELECT @user_id as user_id, @program_id as program_id) AS source
-    ON target.user_id = source.user_id AND target.program_id = source.program_id
-    WHEN MATCHED THEN
-        UPDATE SET 
-            access_level = @access_level,
-            granted_by = @granted_by,
-            date_granted = GETDATE(),
-            is_active = 1
-    WHEN NOT MATCHED THEN
-        INSERT (user_id, program_id, access_level, granted_by)
-        VALUES (@user_id, @program_id, @access_level, @granted_by);
-    
-    -- Log the action
-    INSERT INTO dbo.AuditLog (user_id, action_type, entity_type, entity_id, description)
-    VALUES (@user_id, 'Permission', 'Program', @program_id, 'Granted ' + @access_level + ' access to program');
-    
-    SELECT 'Success' AS result;
-END;
-GO
-
--- Get Project Steps by Project ID
-CREATE PROCEDURE [dbo].[usp_GetProjectStepsByProjectId]
-    @project_id INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    SELECT 
-        step_id,
-        project_id,
-        step_code,
-        step_name,
-        step_description,
-        step_order,
-        estimated_duration_hours,
-        is_quality_control,
-        requires_approval,
-        approval_role
-    FROM dbo.ProjectSteps
-    WHERE project_id = @project_id
-    ORDER BY step_order;
-END;
-GO
-
--- Save Project Step
-CREATE PROCEDURE [dbo].[usp_SaveProjectStep]
-    @StepJson NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Parse JSON input
-    DECLARE @step_id INT,
-            @project_id INT,
-            @step_code NVARCHAR(100),
-            @step_name NVARCHAR(255),
-            @step_description NVARCHAR(MAX),
-            @step_order INT,
-            @estimated_duration_hours DECIMAL(8,2),
-            @is_quality_control BIT,
-            @requires_approval BIT,
-            @approval_role NVARCHAR(100);
-    
-    -- Extract values from JSON
-    SELECT 
-        @step_id = JSON_VALUE(@StepJson, '$.step_id'),
-        @project_id = JSON_VALUE(@StepJson, '$.project_id'),
-        @step_code = JSON_VALUE(@StepJson, '$.step_code'),
-        @step_name = JSON_VALUE(@StepJson, '$.step_name'),
-        @step_description = JSON_VALUE(@StepJson, '$.step_description'),
-        @step_order = JSON_VALUE(@StepJson, '$.step_order'),
-        @estimated_duration_hours = JSON_VALUE(@StepJson, '$.estimated_duration_hours'),
-        @is_quality_control = ISNULL(JSON_VALUE(@StepJson, '$.is_quality_control'), 0),
-        @requires_approval = ISNULL(JSON_VALUE(@StepJson, '$.requires_approval'), 0),
-        @approval_role = JSON_VALUE(@StepJson, '$.approval_role');
-    
-    -- Validate required fields
-    IF @project_id IS NULL OR @step_name IS NULL OR @step_name = '' OR @step_order IS NULL
-    BEGIN
-        RAISERROR('Required fields missing: project_id, step_name, and step_order are required.', 16, 1);
-        RETURN;
-    END
-    
-    IF @step_id IS NULL
-    BEGIN
-        -- Insert new step
-        INSERT INTO dbo.ProjectSteps (
-            project_id, step_code, step_name, step_description, step_order,
-            estimated_duration_hours, is_quality_control, requires_approval, approval_role
-        )
-        VALUES (
-            @project_id, @step_code, @step_name, @step_description, @step_order,
-            @estimated_duration_hours, @is_quality_control, @requires_approval, @approval_role
-        );
-        
-        SET @step_id = SCOPE_IDENTITY();
-    END
-    ELSE
-    BEGIN
-        -- Update existing step
-        UPDATE dbo.ProjectSteps
-        SET 
-            step_code = @step_code,
-            step_name = @step_name,
-            step_description = @step_description,
-            step_order = @step_order,
-            estimated_duration_hours = @estimated_duration_hours,
-            is_quality_control = @is_quality_control,
-            requires_approval = @requires_approval,
-            approval_role = @approval_role
-        WHERE step_id = @step_id;
-    END
-    
-    -- Return the step
-    SELECT 
-        step_id,
-        project_id,
-        step_code,
-        step_name,
-        step_description,
-        step_order,
-        estimated_duration_hours,
-        is_quality_control,
-        requires_approval,
-        approval_role
-    FROM dbo.ProjectSteps
-    WHERE step_id = @step_id;
-END;
-GO
-
--- Add New Tenant (Multi-tenant setup)
-CREATE PROCEDURE [dbo].[usp_AddNewTenant]
-    @tenant_name NVARCHAR(100),
-    @tenant_code NVARCHAR(20),
-    @description NVARCHAR(MAX) = NULL,
-    @admin_user_id INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Insert new program (tenant)
-    INSERT INTO dbo.Programs (program_name, program_code, program_description, created_by)
-    VALUES (@tenant_name, @tenant_code, @description, @admin_user_id);
-    
-    DECLARE @program_id INT = SCOPE_IDENTITY();
-    
-    -- Grant admin access to the creator
-    EXEC usp_GrantProgramAccess @admin_user_id, @program_id, 'Admin', @admin_user_id;
-    
-    -- Return the new program
-    SELECT 
-        program_id,
-        program_name,
-        program_code,
-        program_description,
-        is_active,
-        date_created
-    FROM dbo.Programs
-    WHERE program_id = @program_id;
-END;
-GO
-
--- =============================================
--- CART/PROCUREMENT STORED PROCEDURES
--- =============================================
-
--- Get cart items for a user and project
-CREATE PROCEDURE [dbo].[usp_GetCartItems]
-    @user_id INT,
-    @project_id INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    SELECT 
-        c.cart_id,
-        c.inventory_item_id,
-        c.quantity_requested,
-        c.estimated_cost,
-        c.notes,
-        c.date_added,
-        i.item_name,
-        i.part_number,
-        i.description,
-        i.unit_of_measure,
-        i.current_stock_level,
-        i.reorder_point,
-        i.cost_per_unit,
-        i.supplier_info,
-        i.program_id
-    FROM CartItems c
-    INNER JOIN InventoryItems i ON c.inventory_item_id = i.inventory_item_id
-    WHERE c.user_id = @user_id AND i.program_id = @project_id
-    ORDER BY c.date_added DESC;
-END;
-GO
-
--- Add item to cart
-CREATE PROCEDURE [dbo].[usp_AddToCart]
-    @CartItemJson NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Parse JSON input
-    DECLARE @user_id INT,
-            @inventory_item_id INT,
-            @quantity_requested DECIMAL(18,4),
-            @estimated_cost DECIMAL(18,2),
-            @notes NVARCHAR(MAX);
-    
-    -- Extract values from JSON
-    SELECT 
-        @user_id = JSON_VALUE(@CartItemJson, '$.user_id'),
-        @inventory_item_id = JSON_VALUE(@CartItemJson, '$.inventory_item_id'),
-        @quantity_requested = JSON_VALUE(@CartItemJson, '$.quantity_requested'),
-        @estimated_cost = JSON_VALUE(@CartItemJson, '$.estimated_cost'),
-        @notes = JSON_VALUE(@CartItemJson, '$.notes');
-    
-    -- Validate required fields
-    IF @user_id IS NULL OR @inventory_item_id IS NULL OR @quantity_requested IS NULL OR @quantity_requested <= 0
-    BEGIN
-        RAISERROR('Required fields missing: user_id, inventory_item_id, and quantity_requested > 0 are required.', 16, 1);
-        RETURN;
-    END
-    
-    -- Check if item already exists in cart for this user
-    IF EXISTS (SELECT 1 FROM CartItems WHERE user_id = @user_id AND inventory_item_id = @inventory_item_id)
-    BEGIN
-        -- Update existing cart item
-        UPDATE CartItems
-        SET 
-            quantity_requested = quantity_requested + @quantity_requested,
-            estimated_cost = ISNULL(@estimated_cost, estimated_cost),
-            notes = ISNULL(@notes, notes),
-            last_modified = GETDATE()
-        WHERE user_id = @user_id AND inventory_item_id = @inventory_item_id;
-    END
-    ELSE
-    BEGIN
-        -- Insert new cart item
-        INSERT INTO CartItems (user_id, inventory_item_id, quantity_requested, estimated_cost, notes)
-        VALUES (@user_id, @inventory_item_id, @quantity_requested, @estimated_cost, @notes);
-    END
-    
-    -- Return the updated cart summary
-    SELECT 
-        COUNT(*) as total_items,
-        SUM(quantity_requested) as total_quantity,
-        SUM(ISNULL(estimated_cost, 0)) as total_estimated_cost
-    FROM CartItems c
-    INNER JOIN InventoryItems i ON c.inventory_item_id = i.inventory_item_id
-    WHERE c.user_id = @user_id;
-END;
-GO
-
--- Update cart item quantity
-CREATE PROCEDURE [dbo].[usp_UpdateCartItem]
-    @CartItemJson NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Parse JSON input
-    DECLARE @cart_id INT,
-            @user_id INT,
-            @quantity_requested DECIMAL(18,4),
-            @estimated_cost DECIMAL(18,2),
-            @notes NVARCHAR(MAX);
-    
-    -- Extract values from JSON
-    SELECT 
-        @cart_id = JSON_VALUE(@CartItemJson, '$.cart_id'),
-        @user_id = JSON_VALUE(@CartItemJson, '$.user_id'),
-        @quantity_requested = JSON_VALUE(@CartItemJson, '$.quantity_requested'),
-        @estimated_cost = JSON_VALUE(@CartItemJson, '$.estimated_cost'),
-        @notes = JSON_VALUE(@CartItemJson, '$.notes');
-    
-    -- Validate required fields
-    IF @cart_id IS NULL OR @user_id IS NULL OR @quantity_requested IS NULL OR @quantity_requested <= 0
-    BEGIN
-        RAISERROR('Required fields missing: cart_id, user_id, and quantity_requested > 0 are required.', 16, 1);
-        RETURN;
-    END
-    
-    -- Verify cart item belongs to the user
-    IF NOT EXISTS (SELECT 1 FROM CartItems WHERE cart_id = @cart_id AND user_id = @user_id)
-    BEGIN
-        RAISERROR('Cart item not found or access denied', 16, 1);
-        RETURN;
-    END
-    
-    -- Update the cart item
-    UPDATE CartItems
-    SET 
-        quantity_requested = @quantity_requested,
-        estimated_cost = ISNULL(@estimated_cost, estimated_cost),
-        notes = ISNULL(@notes, notes),
-        last_modified = GETDATE()
-    WHERE cart_id = @cart_id AND user_id = @user_id;
-    
-    -- Return the updated cart item
-    SELECT 
-        c.cart_id,
-        c.inventory_item_id,
-        c.quantity_requested,
-        c.estimated_cost,
-        c.notes,
-        c.date_added,
-        c.last_modified,
-        i.item_name,
-        i.part_number,
-        i.unit_of_measure,
-        i.current_stock_level,
-        i.cost_per_unit
-    FROM CartItems c
-    INNER JOIN InventoryItems i ON c.inventory_item_id = i.inventory_item_id
-    WHERE c.cart_id = @cart_id;
-END;
-GO
-
--- Remove item from cart
-CREATE PROCEDURE [dbo].[usp_RemoveFromCart]
-    @cart_id INT,
-    @user_id INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    -- Verify cart item belongs to the user
-    IF NOT EXISTS (SELECT 1 FROM CartItems WHERE cart_id = @cart_id AND user_id = @user_id)
-    BEGIN
-        RAISERROR('Cart item not found or access denied', 16, 1);
-        RETURN;
-    END
-    
-    -- Remove the cart item
-    DELETE FROM CartItems
-    WHERE cart_id = @cart_id AND user_id = @user_id;
-    
-    SELECT 'Cart item removed successfully' as result;
-END;
-GO
-
--- Create order from cart
-CREATE PROCEDURE [dbo].[usp_CreateOrderFromCart]
-    @user_id INT,
-    @project_id INT,
-    @supplier_info NVARCHAR(MAX) = NULL,
-    @order_notes NVARCHAR(MAX) = NULL
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    BEGIN TRANSACTION;
+    DECLARE @program_id INT = JSON_VALUE(@SponsorJson, '$.program_id');
+    DECLARE @sponsor_id INT = JSON_VALUE(@SponsorJson, '$.sponsor_id');
+    DECLARE @sponsor_name NVARCHAR(255) = JSON_VALUE(@SponsorJson, '$.sponsor_name');
+    DECLARE @sponsor_code NVARCHAR(50) = JSON_VALUE(@SponsorJson, '$.sponsor_code');
+    DECLARE @organization_type NVARCHAR(100) = JSON_VALUE(@SponsorJson, '$.organization_type');
+    DECLARE @primary_contact_name NVARCHAR(255) = JSON_VALUE(@SponsorJson, '$.primary_contact_name');
+    DECLARE @primary_contact_email NVARCHAR(255) = JSON_VALUE(@SponsorJson, '$.primary_contact_email');
+    DECLARE @primary_contact_phone NVARCHAR(50) = JSON_VALUE(@SponsorJson, '$.primary_contact_phone');
+    DECLARE @billing_address NVARCHAR(MAX) = JSON_VALUE(@SponsorJson, '$.billing_address');
+    DECLARE @tax_id NVARCHAR(50) = JSON_VALUE(@SponsorJson, '$.tax_id');
+    DECLARE @payment_terms NVARCHAR(255) = JSON_VALUE(@SponsorJson, '$.payment_terms');
+    DECLARE @status NVARCHAR(50) = JSON_VALUE(@SponsorJson, '$.status');
+    DECLARE @notes NVARCHAR(MAX) = JSON_VALUE(@SponsorJson, '$.notes');
+    DECLARE @created_by INT = JSON_VALUE(@SponsorJson, '$.created_by');
     
     BEGIN TRY
-        -- Check if user has cart items for this project
-        IF NOT EXISTS (
-            SELECT 1 FROM CartItems c
-            INNER JOIN InventoryItems i ON c.inventory_item_id = i.inventory_item_id
-            WHERE c.user_id = @user_id AND i.program_id = @project_id
-        )
-        BEGIN
-            RAISERROR('No cart items found for this project', 16, 1);
-            RETURN;
-        END
-        
-        -- Generate order number
-        DECLARE @order_number NVARCHAR(50) = 'ORD-' + CONVERT(NVARCHAR(8), GETDATE(), 112) + '-' + RIGHT('000' + CAST(ABS(CHECKSUM(NEWID())) % 1000 AS NVARCHAR(3)), 3);
-        
-        -- Calculate total estimated cost
-        DECLARE @total_estimated_cost DECIMAL(18,2) = (
-            SELECT SUM(ISNULL(c.estimated_cost, 0))
-            FROM CartItems c
-            INNER JOIN InventoryItems i ON c.inventory_item_id = i.inventory_item_id
-            WHERE c.user_id = @user_id AND i.program_id = @project_id
-        );
-        
-        -- Create the pending order
-        INSERT INTO PendingOrders (
-            order_number, user_id, project_id, total_estimated_cost, supplier_info, order_notes
-        )
-        VALUES (
-            @order_number, @user_id, @project_id, @total_estimated_cost, @supplier_info, @order_notes
-        );
-        
-        DECLARE @order_id INT = SCOPE_IDENTITY();
-        
-        -- Move cart items to order items
-        INSERT INTO PendingOrderItems (order_id, inventory_item_id, quantity_ordered, unit_cost, total_cost, notes)
-        SELECT 
-            @order_id,
-            c.inventory_item_id,
-            c.quantity_requested,
-            i.cost_per_unit,
-            c.quantity_requested * ISNULL(i.cost_per_unit, 0),
-            c.notes
-        FROM CartItems c
-        INNER JOIN InventoryItems i ON c.inventory_item_id = i.inventory_item_id
-        WHERE c.user_id = @user_id AND i.program_id = @project_id;
-        
-        -- Remove items from cart
-        DELETE c
-        FROM CartItems c
-        INNER JOIN InventoryItems i ON c.inventory_item_id = i.inventory_item_id
-        WHERE c.user_id = @user_id AND i.program_id = @project_id;
-        
-        -- Return the created order
-        SELECT 
-            o.order_id,
-            o.order_number,
-            o.status,
-            o.total_estimated_cost,
-            o.date_created,
-            COUNT(oi.order_item_id) as total_items
-        FROM PendingOrders o
-        LEFT JOIN PendingOrderItems oi ON o.order_id = oi.order_id
-        WHERE o.order_id = @order_id
-        GROUP BY o.order_id, o.order_number, o.status, o.total_estimated_cost, o.date_created;
-        
-        COMMIT TRANSACTION;
-        
-    END TRY
-    BEGIN CATCH
-        ROLLBACK TRANSACTION;
-        THROW;
-    END CATCH
-END;
-GO
-
--- Get pending orders for a user/project
-CREATE PROCEDURE [dbo].[usp_GetPendingOrders]
-    @user_id INT = NULL,
-    @project_id INT = NULL
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    SELECT 
-        o.order_id,
-        o.order_number,
-        o.user_id,
-        u.display_name as user_name,
-        o.project_id,
-        p.project_name,
-        o.status,
-        o.total_estimated_cost,
-        o.supplier_info,
-        o.order_notes,
-        o.date_created,
-        o.date_approved,
-        o.date_ordered,
-        o.expected_delivery_date,
-        o.actual_delivery_date,
-        SUM(oi.quantity_ordered) as total_items
-    FROM PendingOrders o
-    LEFT JOIN Users u ON o.user_id = u.user_id
-    LEFT JOIN Projects p ON o.project_id = p.project_id
-    LEFT JOIN PendingOrderItems oi ON o.order_id = oi.order_id
-    WHERE (@user_id IS NULL OR o.user_id = @user_id)
-      AND (@project_id IS NULL OR o.project_id = @project_id)
-    GROUP BY 
-        o.order_id, o.order_number, o.user_id, u.display_name, o.project_id, p.project_name,
-        o.status, o.total_estimated_cost, o.supplier_info, o.order_notes, o.date_created,
-        o.date_approved, o.date_ordered, o.expected_delivery_date, o.actual_delivery_date
-    ORDER BY o.date_created DESC;
-END;
-GO
-
--- Mark order as received and update inventory
-CREATE PROCEDURE [dbo].[usp_MarkOrderAsReceived]
-    @OrderReceivedJson NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @ResultJson NVARCHAR(MAX);
-    DECLARE @OrderExists BIT = 0;
-    DECLARE @UserCanReceive BIT = 0;
-    DECLARE @OrderStatus NVARCHAR(50);
-    DECLARE @OrderNumber NVARCHAR(50);
-    
-    -- Parse JSON input
-    DECLARE @OrderId INT = JSON_VALUE(@OrderReceivedJson, '$.order_id');
-    DECLARE @UserId INT = JSON_VALUE(@OrderReceivedJson, '$.user_id');
-    
-    BEGIN TRY
-        -- Validate JSON parameters
-        IF @OrderId IS NULL OR @UserId IS NULL
-        BEGIN
-            SET @ResultJson = '{"error": "Missing required parameters: order_id and user_id"}';
-            SELECT @ResultJson as JsonResult;
-            RETURN;
-        END
-        
-        -- Check if order exists and get current status
-        SELECT 
-            @OrderExists = 1,
-            @OrderStatus = status,
-            @OrderNumber = order_number,
-            @UserCanReceive = CASE 
-                WHEN user_id = @UserId THEN 1 
-                ELSE 0 
-            END
-        FROM PendingOrders 
-        WHERE order_id = @OrderId;
-        
-        -- Validate order exists
-        IF @OrderExists = 0
-        BEGIN
-            SET @ResultJson = '{"error": "Order not found"}';
-            SELECT @ResultJson as JsonResult;
-            RETURN;
-        END
-        
-        -- Check if user can receive this order (must be the person who ordered it)
-        IF @UserCanReceive = 0
-        BEGIN
-            -- Check if user is system admin
-            DECLARE @IsSystemAdmin BIT = 0;
-            SELECT @IsSystemAdmin = is_system_admin FROM Users WHERE user_id = @UserId;
-            
-            IF @IsSystemAdmin = 0
-            BEGIN
-                SET @ResultJson = '{"error": "Only the person who ordered can mark as received"}';
-                SELECT @ResultJson as JsonResult;
-                RETURN;
-            END
-        END
-        
-        -- Check if order is already received
-        IF @OrderStatus = 'Received'
-        BEGIN
-            SET @ResultJson = '{"error": "Order has already been marked as received"}';
-            SELECT @ResultJson as JsonResult;
-            RETURN;
-        END
-        
-        -- Check if order is in a state that can be received
-        IF @OrderStatus NOT IN ('Pending', 'Approved', 'Ordered')
-        BEGIN
-            SET @ResultJson = '{"error": "Order cannot be received in current status: ' + @OrderStatus + '"}';
-            SELECT @ResultJson as JsonResult;
-            RETURN;
-        END
-        
-        -- Begin transaction to update order and inventory
         BEGIN TRANSACTION;
         
-        -- Update all order items to mark as fully received
-        UPDATE PendingOrderItems 
-        SET quantity_received = quantity_ordered
-        WHERE order_id = @OrderId;
+        IF @sponsor_id IS NULL OR @sponsor_id = 0
+        BEGIN
+            -- Create new sponsor
+            INSERT INTO [dbo].[Sponsors] (
+                program_id, sponsor_name, sponsor_code, organization_type,
+                primary_contact_name, primary_contact_email, primary_contact_phone,
+                billing_address, tax_id, payment_terms, status, notes, created_by
+            )
+            VALUES (
+                @program_id, @sponsor_name, @sponsor_code, @organization_type,
+                @primary_contact_name, @primary_contact_email, @primary_contact_phone,
+                @billing_address, @tax_id, @payment_terms, @status, @notes, @created_by
+            );
+            
+            SET @sponsor_id = SCOPE_IDENTITY();
+        END
+        ELSE
+        BEGIN
+            -- Update existing sponsor
+            UPDATE [dbo].[Sponsors]
+            SET 
+                sponsor_name = @sponsor_name,
+                sponsor_code = @sponsor_code,
+                organization_type = @organization_type,
+                primary_contact_name = @primary_contact_name,
+                primary_contact_email = @primary_contact_email,
+                primary_contact_phone = @primary_contact_phone,
+                billing_address = @billing_address,
+                tax_id = @tax_id,
+                payment_terms = @payment_terms,
+                status = @status,
+                notes = @notes,
+                last_modified = GETDATE()
+            WHERE sponsor_id = @sponsor_id AND program_id = @program_id;
+        END
         
-        -- Update inventory stock levels
-        UPDATE ii
-        SET current_stock_level = ISNULL(current_stock_level, 0) + poi.quantity_ordered,
-            last_modified = GETDATE()
-        FROM InventoryItems ii
-        INNER JOIN PendingOrderItems poi ON ii.inventory_item_id = poi.inventory_item_id
-        WHERE poi.order_id = @OrderId;
-        
-        -- Update order status to received
-        UPDATE PendingOrders 
-        SET status = 'Received',
-            actual_delivery_date = GETDATE(),
-            last_modified = GETDATE()
-        WHERE order_id = @OrderId;
-        
-        -- Commit transaction
         COMMIT TRANSACTION;
         
-        -- Return success with order details
-        DECLARE @ItemsUpdated INT;
-        SELECT @ItemsUpdated = COUNT(*) FROM PendingOrderItems WHERE order_id = @OrderId;
-        
-        SET @ResultJson = '{"success": true, "message": "Order marked as received and inventory updated", "order_id": ' + CAST(@OrderId AS NVARCHAR(10)) + ', "order_number": "' + @OrderNumber + '", "received_date": "' + FORMAT(GETDATE(), 'yyyy-MM-dd HH:mm:ss') + '", "items_updated": ' + CAST(@ItemsUpdated AS NVARCHAR(10)) + '}';
-        
-        SELECT @ResultJson as JsonResult;
+        SELECT @sponsor_id AS sponsor_id;
         
     END TRY
     BEGIN CATCH
-        -- Rollback transaction on error
         IF @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
-            
-        SET @ResultJson = '{"error": "Failed to mark order as received: ' + ERROR_MESSAGE() + '", "error_number": ' + CAST(ERROR_NUMBER() AS NVARCHAR(10)) + ', "error_line": ' + CAST(ERROR_LINE() AS NVARCHAR(10)) + '}';
         
-        SELECT @ResultJson as JsonResult;
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
     END CATCH
-END;
+END
+GO
+
+-- Create or update sponsor fund
+CREATE PROCEDURE [dbo].[usp_SaveSponsorFund]
+    @FundJson NVARCHAR(MAX)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @fund_id INT = JSON_VALUE(@FundJson, '$.fund_id');
+    DECLARE @sponsor_id INT = JSON_VALUE(@FundJson, '$.sponsor_id');
+    DECLARE @fund_name NVARCHAR(255) = JSON_VALUE(@FundJson, '$.fund_name');
+    DECLARE @fund_code NVARCHAR(50) = JSON_VALUE(@FundJson, '$.fund_code');
+    DECLARE @fund_type NVARCHAR(100) = JSON_VALUE(@FundJson, '$.fund_type');
+    DECLARE @total_amount DECIMAL(18,2) = JSON_VALUE(@FundJson, '$.total_amount');
+    DECLARE @effective_date DATETIME2 = JSON_VALUE(@FundJson, '$.effective_date');
+    DECLARE @expiration_date DATETIME2 = JSON_VALUE(@FundJson, '$.expiration_date');
+    DECLARE @funding_document_id INT = JSON_VALUE(@FundJson, '$.funding_document_id');
+    DECLARE @approval_status NVARCHAR(50) = JSON_VALUE(@FundJson, '$.approval_status');
+    DECLARE @approved_by INT = JSON_VALUE(@FundJson, '$.approved_by');
+    DECLARE @status NVARCHAR(50) = JSON_VALUE(@FundJson, '$.status');
+    DECLARE @restrictions NVARCHAR(MAX) = JSON_VALUE(@FundJson, '$.restrictions');
+    DECLARE @reporting_requirements NVARCHAR(MAX) = JSON_VALUE(@FundJson, '$.reporting_requirements');
+    DECLARE @notes NVARCHAR(MAX) = JSON_VALUE(@FundJson, '$.notes');
+    DECLARE @created_by INT = JSON_VALUE(@FundJson, '$.created_by');
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        IF @fund_id IS NULL OR @fund_id = 0
+        BEGIN
+            -- Create new fund
+            INSERT INTO [dbo].[SponsorFunds] (
+                sponsor_id, fund_name, fund_code, fund_type, total_amount,
+                effective_date, expiration_date, funding_document_id, approval_status,
+                approved_by, status, restrictions, reporting_requirements, notes, created_by
+            )
+            VALUES (
+                @sponsor_id, @fund_name, @fund_code, @fund_type, @total_amount,
+                @effective_date, @expiration_date, @funding_document_id, @approval_status,
+                @approved_by, @status, @restrictions, @reporting_requirements, @notes, @created_by
+            );
+            
+            SET @fund_id = SCOPE_IDENTITY();
+        END
+        ELSE
+        BEGIN
+            -- Update existing fund
+            UPDATE [dbo].[SponsorFunds]
+            SET 
+                fund_name = @fund_name,
+                fund_code = @fund_code,
+                fund_type = @fund_type,
+                total_amount = @total_amount,
+                effective_date = @effective_date,
+                expiration_date = @expiration_date,
+                funding_document_id = @funding_document_id,
+                approval_status = @approval_status,
+                approved_by = @approved_by,
+                status = @status,
+                restrictions = @restrictions,
+                reporting_requirements = @reporting_requirements,
+                notes = @notes,
+                last_modified = GETDATE()
+            WHERE fund_id = @fund_id;
+        END
+        
+        -- Set approval date if approved
+        IF @approval_status = 'Approved' AND @approved_by IS NOT NULL
+        BEGIN
+            UPDATE [dbo].[SponsorFunds]
+            SET approved_date = GETDATE()
+            WHERE fund_id = @fund_id AND approved_date IS NULL;
+        END
+        
+        COMMIT TRANSACTION;
+        
+        SELECT @fund_id AS fund_id;
+        
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+
+-- Allocate fund to task
+CREATE PROCEDURE [dbo].[usp_AllocateTaskFund]
+    @AllocationJson NVARCHAR(MAX)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @task_id INT = JSON_VALUE(@AllocationJson, '$.task_id');
+    DECLARE @fund_id INT = JSON_VALUE(@AllocationJson, '$.fund_id');
+    DECLARE @allocation_amount DECIMAL(18,2) = JSON_VALUE(@AllocationJson, '$.allocation_amount');
+    DECLARE @expiration_date DATETIME2 = JSON_VALUE(@AllocationJson, '$.expiration_date');
+    DECLARE @is_cross_payment BIT = JSON_VALUE(@AllocationJson, '$.is_cross_payment');
+    DECLARE @cross_payment_sponsor_id INT = JSON_VALUE(@AllocationJson, '$.cross_payment_sponsor_id');
+    DECLARE @cross_payment_reference NVARCHAR(100) = JSON_VALUE(@AllocationJson, '$.cross_payment_reference');
+    DECLARE @purpose NVARCHAR(255) = JSON_VALUE(@AllocationJson, '$.purpose');
+    DECLARE @justification NVARCHAR(MAX) = JSON_VALUE(@AllocationJson, '$.justification');
+    DECLARE @created_by INT = JSON_VALUE(@AllocationJson, '$.created_by');
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        -- Check if fund has sufficient remaining amount
+        DECLARE @remaining_amount DECIMAL(18,2);
+        SELECT @remaining_amount = total_amount - allocated_amount
+        FROM [dbo].[SponsorFunds]
+        WHERE fund_id = @fund_id AND status = 'Active';
+        
+        IF @remaining_amount < @allocation_amount
+        BEGIN
+            RAISERROR('Insufficient funds available. Remaining: %s, Requested: %s', 16, 1, @remaining_amount, @allocation_amount);
+            RETURN;
+        END
+        
+        -- Create allocation
+        INSERT INTO [dbo].[TaskFundAllocations] (
+            task_id, fund_id, allocation_amount, expiration_date, is_cross_payment,
+            cross_payment_sponsor_id, cross_payment_reference, purpose, justification, created_by
+        )
+        VALUES (
+            @task_id, @fund_id, @allocation_amount, @expiration_date, @is_cross_payment,
+            @cross_payment_sponsor_id, @cross_payment_reference, @purpose, @justification, @created_by
+        );
+        
+        -- Update fund allocated amount
+        UPDATE [dbo].[SponsorFunds]
+        SET allocated_amount = allocated_amount + @allocation_amount,
+            last_modified = GETDATE()
+        WHERE fund_id = @fund_id;
+        
+        COMMIT TRANSACTION;
+        
+        SELECT SCOPE_IDENTITY() AS allocation_id;
+        
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END
+GO
+
+-- Get funds with usage summary
+CREATE PROCEDURE [dbo].[usp_GetFundsWithUsage]
+    @program_id INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        f.fund_id,
+        f.fund_name,
+        f.fund_code,
+        f.fund_type,
+        f.total_amount,
+        f.allocated_amount,
+        f.spent_amount,
+        f.remaining_amount,
+        f.effective_date,
+        f.expiration_date,
+        f.status,
+        f.approval_status,
+        s.sponsor_name,
+        s.sponsor_code,
+        s.program_id,
+        p.program_name,
+        -- Calculate days until expiration
+        CASE 
+            WHEN f.expiration_date IS NULL THEN NULL
+            ELSE DATEDIFF(DAY, GETDATE(), f.expiration_date)
+        END AS days_until_expiration,
+        -- Fund utilization percentage
+        CASE 
+            WHEN f.total_amount = 0 THEN 0
+            ELSE ROUND((f.allocated_amount / f.total_amount) * 100, 2)
+        END AS utilization_percentage
+    FROM [dbo].[SponsorFunds] f
+    INNER JOIN [dbo].[Sponsors] s ON f.sponsor_id = s.sponsor_id
+    INNER JOIN [dbo].[Programs] p ON s.program_id = p.program_id
+    WHERE (@program_id IS NULL OR s.program_id = @program_id)
+    ORDER BY f.expiration_date ASC, f.fund_name;
+END
+GO
+
+-- Get task fund allocations
+CREATE PROCEDURE [dbo].[usp_GetTaskFundAllocations]
+    @program_id INT = NULL,
+    @task_id INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        tfa.allocation_id,
+        tfa.task_id,
+        tfa.fund_id,
+        tfa.allocation_amount,
+        tfa.spent_amount,
+        tfa.remaining_amount,
+        tfa.allocation_date,
+        tfa.expiration_date,
+        tfa.status,
+        tfa.is_cross_payment,
+        tfa.cross_payment_sponsor_id,
+        tfa.cross_payment_reference,
+        tfa.purpose,
+        tfa.justification,
+        t.task_title,
+        t.task_description,
+        f.fund_name,
+        f.fund_code,
+        s.sponsor_name,
+        s.sponsor_code,
+        cps.sponsor_name AS cross_payment_sponsor_name,
+        p.program_name
+    FROM [dbo].[TaskFundAllocations] tfa
+    INNER JOIN [dbo].[Tasks] t ON tfa.task_id = t.task_id
+    INNER JOIN [dbo].[SponsorFunds] f ON tfa.fund_id = f.fund_id
+    INNER JOIN [dbo].[Sponsors] s ON f.sponsor_id = s.sponsor_id
+    INNER JOIN [dbo].[Programs] p ON s.program_id = p.program_id
+    LEFT JOIN [dbo].[Sponsors] cps ON tfa.cross_payment_sponsor_id = cps.sponsor_id
+    WHERE (@program_id IS NULL OR s.program_id = @program_id)
+      AND (@task_id IS NULL OR tfa.task_id = @task_id)
+    ORDER BY tfa.allocation_date DESC;
+END
 GO
 
 -- =============================================
--- ENHANCED DEFAULT DATA WITH PROPER USERS
+-- SAMPLE PROCUREMENT DATA
 -- =============================================
 
--- Clear existing sample data to add proper users (with proper constraint handling)
--- Disable foreign key constraints temporarily
-ALTER TABLE [dbo].[Projects] NOCHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[Tasks] NOCHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[Notifications] NOCHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[InventoryItems] NOCHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[ProgramAccess] NOCHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[ProjectAccess] NOCHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[UserRoles] NOCHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[AuditLog] NOCHECK CONSTRAINT ALL;
+-- Insert sample sponsors
+INSERT INTO [dbo].[Sponsors] (program_id, sponsor_name, sponsor_code, organization_type, primary_contact_name, primary_contact_email, status, created_by)
+VALUES 
+(1, 'Department of Defense', 'DOD', 'Government', 'John Smith', 'john.smith@defense.gov', 'Active', 1),
+(1, 'Navy Research Laboratory', 'NRL', 'Government', 'Sarah Johnson', 'sarah.johnson@navy.mil', 'Active', 1),
+(1, 'Internal Operations', 'INTERNAL', 'Internal', 'Operations Manager', 'ops@company.com', 'Active', 1);
 
--- Clear existing data with IF EXISTS checks
-IF EXISTS (SELECT 1 FROM [dbo].[ProgramAccess])
-    DELETE FROM [dbo].[ProgramAccess];
+-- Insert sample sponsor funds
+INSERT INTO [dbo].[SponsorFunds] (sponsor_id, fund_name, fund_code, fund_type, total_amount, effective_date, expiration_date, approval_status, approved_by, status, created_by)
+VALUES 
+(1, 'FY2025 R&D Contract', 'DOD-RD-2025', 'Contract', 500000.00, '2025-01-01', '2025-12-31', 'Approved', 1, 'Active', 1),
+(2, 'Advanced Materials Grant', 'NRL-AM-2025', 'Grant', 250000.00, '2025-01-01', '2025-06-30', 'Approved', 1, 'Active', 1),
+(3, 'Emergency Operations Fund', 'INT-EMG-2025', 'Internal', 100000.00, '2025-01-01', NULL, 'Approved', 1, 'Active', 1);
 
-IF EXISTS (SELECT 1 FROM [dbo].[ProjectAccess])
-    DELETE FROM [dbo].[ProjectAccess];
+-- Insert sample vendors
+INSERT INTO [dbo].[ProcurementVendors] (program_id, vendor_name, vendor_code, vendor_type, primary_contact_name, primary_contact_email, status, created_by)
+VALUES 
+(1, 'Advanced Manufacturing Solutions', 'AMS', 'Supplier', 'Mike Wilson', 'mike.wilson@ams.com', 'Active', 1),
+(1, 'Precision Components Inc', 'PCI', 'Supplier', 'Lisa Chen', 'lisa.chen@precision.com', 'Active', 1),
+(1, 'Quality Testing Services', 'QTS', 'Service Provider', 'David Brown', 'david.brown@qts.com', 'Active', 1);
 
-IF EXISTS (SELECT 1 FROM [dbo].[UserRoles])
-    DELETE FROM [dbo].[UserRoles];
-
-IF EXISTS (SELECT 1 FROM [dbo].[Tasks])
-    DELETE FROM [dbo].[Tasks];
-
-IF EXISTS (SELECT 1 FROM [dbo].[Notifications])
-    DELETE FROM [dbo].[Notifications];
-
-IF EXISTS (SELECT 1 FROM [dbo].[AuditLog])
-    DELETE FROM [dbo].[AuditLog];
-
-IF EXISTS (SELECT 1 FROM [dbo].[Users])
-    DELETE FROM [dbo].[Users]; -- Delete all users
-
--- =============================================
--- MULTI-TENANT INVENTORY MIGRATION
--- Add program_id to InventoryItems for proper tenant isolation
--- =============================================
-
--- Step 1: Add program_id column to InventoryItems table
-IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.InventoryItems') AND name = 'program_id')
-BEGIN
-    ALTER TABLE [dbo].[InventoryItems] 
-    ADD [program_id] [int] NULL;
-    
-    PRINT 'Added program_id column to InventoryItems table';
-END
-
--- Step 2: Get Default Program ID and populate existing inventory items
-DECLARE @DefaultProgramId INT = (SELECT program_id FROM [dbo].[Programs] WHERE program_code = 'OPS');
-
--- Update existing inventory items to belong to default program
-IF @DefaultProgramId IS NOT NULL
-BEGIN
-    UPDATE [dbo].[InventoryItems] 
-    SET program_id = @DefaultProgramId 
-    WHERE program_id IS NULL;
-    
-    PRINT 'Updated existing inventory items to belong to default program';
-END
-
--- Step 3: Make program_id NOT NULL after data migration
-IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.InventoryItems') AND name = 'program_id' AND is_nullable = 1)
-BEGIN
-    ALTER TABLE [dbo].[InventoryItems] 
-    ALTER COLUMN [program_id] [int] NOT NULL;
-    
-    PRINT 'Made program_id column NOT NULL';
-END
-
--- Step 4: Add foreign key constraint if it doesn't exist
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_InventoryItems_Programs')
-BEGIN
-    ALTER TABLE [dbo].[InventoryItems] 
-    ADD CONSTRAINT [FK_InventoryItems_Programs] 
-    FOREIGN KEY([program_id]) REFERENCES [dbo].[Programs] ([program_id]);
-    
-    PRINT 'Added foreign key constraint FK_InventoryItems_Programs';
-END
-
--- Step 5: Add performance index for program-based inventory queries
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IDX_InventoryItems_Program')
-BEGIN
-    CREATE NONCLUSTERED INDEX [IDX_InventoryItems_Program] 
-    ON [dbo].[InventoryItems] ([program_id]) 
-    INCLUDE ([item_name], [current_stock_level], [reorder_point]);
-    
-    PRINT 'Added performance index IDX_InventoryItems_Program';
-END
-
-PRINT 'Multi-tenant inventory migration completed successfully!'
-PRINT 'Inventory items are now properly isolated by program.'
-
-GO
-
--- =============================================
--- CONTINUE WITH ENHANCED DEFAULT DATA
--- =============================================
-
--- Insert Justin Dougherty as System Administrator
-INSERT INTO [dbo].[Users] (
-    certificate_subject, 
-    certificate_thumbprint, 
-    user_name, 
-    display_name, 
-    email, 
-    first_name, 
-    last_name, 
-    initials, 
-    is_active, 
-    is_system_admin, 
-    preferences
-)
-VALUES (
-    'CN=DOUGHERTY.JUSTIN.MICHAEL.1250227228,OU=USN,OU=PKI,OU=DoD,O=U.S. Government,C=US',
-    'admin-cert-thumbprint-123',
-    'justin.dougherty',
-    'Justin Dougherty',
-    'justin.dougherty@navy.mil',
-    'Justin',
-    'Dougherty',
-    'JD',
-    1,
-    1,
-    '{"theme": "light", "notifications": true, "dashboard_view": "production"}'
-);
-
-DECLARE @JustinUserId INT = SCOPE_IDENTITY();
-
--- Insert Development/Test User
-INSERT INTO [dbo].[Users] (
-    certificate_subject, 
-    certificate_thumbprint, 
-    user_name, 
-    display_name, 
-    email, 
-    first_name, 
-    last_name, 
-    initials, 
-    is_active, 
-    is_system_admin, 
-    preferences
-)
-VALUES (
-    'CN=development-user,OU=Development,OU=Test,O=Development,C=US',
-    'dev-cert-thumbprint-456',
-    'development.user',
-    'Development Visitor (Limited Access)',
-    'dev@localhost',
-    'Development',
-    'User',
-    'DU',
-    1,
-    0,
-    '{"theme": "light", "notifications": true}'
-);
-
-DECLARE @DevUserId INT = SCOPE_IDENTITY();
-
--- Insert Sample Production Technician
-INSERT INTO [dbo].[Users] (
-    certificate_subject, 
-    certificate_thumbprint, 
-    user_name, 
-    display_name, 
-    email, 
-    first_name, 
-    last_name, 
-    initials, 
-    is_active, 
-    is_system_admin, 
-    preferences
-)
-VALUES (
-    'CN=SMITH.JOHN.PATRICK.9876543210,OU=USN,OU=PKI,OU=DoD,O=U.S. Government,C=US',
-    'tech-cert-thumbprint-789',
-    'john.smith',
-    'John Smith',
-    'john.smith@navy.mil',
-    'John',
-    'Smith',
-    'JS',
-    1,
-    0,
-    '{"theme": "dark", "notifications": true}'
-);
-
-DECLARE @TechUserId INT = SCOPE_IDENTITY();
-
--- Update the Default Program to have proper creator
-UPDATE [dbo].[Programs] 
-SET created_by = @JustinUserId, program_manager = 'Justin Dougherty'
-WHERE program_code = 'OPS';
-
--- Assign System Admin Role to Justin
-INSERT INTO [dbo].[UserRoles] (user_id, role_id, assigned_by)
-SELECT @JustinUserId, role_id, @JustinUserId
-FROM [dbo].[Roles] 
-WHERE role_name = 'System Administrator';
-
--- Assign Production Technician Role to John Smith
-INSERT INTO [dbo].[UserRoles] (user_id, role_id, assigned_by)
-SELECT @TechUserId, role_id, @JustinUserId
-FROM [dbo].[Roles] 
-WHERE role_name = 'Production Technician';
-
--- Grant Program Access to all users for Default Program
-DECLARE @DefaultProgramId INT = (SELECT program_id FROM [dbo].[Programs] WHERE program_code = 'OPS');
-
--- Justin gets Admin access
-EXEC usp_GrantProgramAccess @JustinUserId, @DefaultProgramId, 'Admin', @JustinUserId;
-
--- Development user gets Read access
-EXEC usp_GrantProgramAccess @DevUserId, @DefaultProgramId, 'Read', @JustinUserId;
-
--- Tech user gets Write access
-EXEC usp_GrantProgramAccess @TechUserId, @DefaultProgramId, 'Write', @JustinUserId;
-
--- Update the sample project to have proper creator and manager
-UPDATE [dbo].[Projects] 
-SET created_by = @JustinUserId, project_manager_id = @JustinUserId
-WHERE project_name = 'Production Run #001';
-
--- Update inventory items to have proper creator
-UPDATE [dbo].[InventoryItems] 
-SET created_by = @JustinUserId
-WHERE created_by IS NULL OR created_by = 1;
-
--- Update notifications to have proper user
-UPDATE [dbo].[Notifications] 
-SET user_id = @JustinUserId
-WHERE user_id IS NULL OR user_id = 1;
-
--- Create some sample tasks for the project
-DECLARE @SampleProjectId INT = (SELECT project_id FROM [dbo].[Projects] WHERE project_name = 'Production Run #001');
-
-EXEC usp_SaveTask 
-    @project_id = @SampleProjectId,
-    @task_title = 'Review Material Specifications',
-    @task_description = 'Review and approve material specifications for production run #001',
-    @assigned_to = @TechUserId,
-    @assigned_by = @JustinUserId,
-    @priority = 'High',
-    @status = 'Pending',
-    @due_date = '2025-07-20',
-    @estimated_hours = 2.0,
-    @notes = 'Critical for production timeline';
-
-EXEC usp_SaveTask 
-    @project_id = @SampleProjectId,
-    @task_title = 'Inventory Stock Check',
-    @task_description = 'Verify inventory levels for all required materials',
-    @assigned_to = @DevUserId,
-    @assigned_by = @JustinUserId,
-    @priority = 'Medium',
-    @status = 'Pending',
-    @due_date = '2025-07-18',
-    @estimated_hours = 1.5,
-    @notes = 'Check reorder points and current stock levels';
-
--- Re-enable foreign key constraints
-ALTER TABLE [dbo].[Projects] CHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[Tasks] CHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[Notifications] CHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[InventoryItems] CHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[ProgramAccess] CHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[ProjectAccess] CHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[UserRoles] CHECK CONSTRAINT ALL;
-ALTER TABLE [dbo].[AuditLog] CHECK CONSTRAINT ALL;
-
-GO
-
--- =============================================
--- FINAL VERIFICATION AND SUMMARY
--- =============================================
-
-PRINT 'H10CM Database Enhanced Successfully!'
-PRINT '================================================='
+PRINT '✅ PROCUREMENT & FUNDING MANAGEMENT SYSTEM ADDED:'
+PRINT '- Sponsors table (organizations providing funding)'
+PRINT '- SponsorFunds table (specific funding sources/accounts)'
+PRINT '- FundingDocuments table (contracts, agreements, documentation)'
+PRINT '- TaskFundAllocations table (allocate funds to specific tasks)'
+PRINT '- OrderFundAllocations table (allocate funds to procurement orders)'
+PRINT '- ProcurementVendors table (vendor management)'
+PRINT '- ProcurementNotifications table (procurement-specific notifications)'
+PRINT '- ProcurementAuditLog table (audit trail for fund transactions)'
+PRINT '- Sample data: 3 sponsors, 3 funds, 3 vendors'
+PRINT '- Complete stored procedures for fund management'
+PRINT '- Cross-payment allocation system'
+PRINT '- Expiration tracking for funds and documents'
+PRINT '- Multi-tenant support with program_id integration'
 PRINT ''
-PRINT '✅ STORED PROCEDURES ADDED:'
-PRINT '- usp_GetProjects (Primary dashboard procedure)'
-PRINT '- usp_SaveProject (Insert/Update projects)'
-PRINT '- usp_SaveTask (Task management)'
-PRINT '- usp_SaveInventoryItem (Inventory management)'
-PRINT '- usp_GrantProgramAccess (RBAC access control)'
-PRINT '- usp_GetProjectStepsByProjectId (Project workflow)'
-PRINT '- usp_SaveProjectStep (Project step management)'
-PRINT '- usp_AddNewTenant (Multi-tenant setup)'
-PRINT '- usp_GetCartItems (Shopping cart management)'
-PRINT '- usp_AddToCart (Add items to cart)'
-PRINT '- usp_UpdateCartItem (Update cart quantities)'
-PRINT '- usp_RemoveFromCart (Remove from cart)'
-PRINT '- usp_CreateOrderFromCart (Create procurement orders)'
-PRINT '- usp_GetPendingOrders (View pending orders)'
-PRINT '- usp_MarkOrderAsReceived (Mark orders as received and update inventory)'
-PRINT ''
-PRINT '✅ TABLES ADDED:'
-PRINT '- CartItems (Shopping cart functionality)'
-PRINT '- PendingOrders (Procurement order management)'
-PRINT '- PendingOrderItems (Order line items)'
-PRINT '- Enhanced InventoryItems with program_id for multi-tenant isolation'
-PRINT ''
-PRINT '✅ USERS CREATED:'
-PRINT '- Justin Dougherty (System Administrator)'
-PRINT '- Development User (Limited Access)'
-PRINT '- John Smith (Production Technician)'
-PRINT ''
-PRINT '✅ SAMPLE DATA:'
-PRINT '- Operations Program with proper ownership'
-PRINT '- Sample project with assigned manager'
-PRINT '- 5 Inventory items with proper creator'
-PRINT '- 2 Sample tasks assigned to team members'
-PRINT '- Proper program access permissions'
-PRINT ''
-PRINT '🚀 READY FOR DEPLOYMENT!'
-PRINT 'The database is now complete and ready for the H10CM API.'
-PRINT 'Justin Dougherty has full system admin access.'
-PRINT 'Certificate authentication is properly configured.'
 
-GO
+-- ...existing code...

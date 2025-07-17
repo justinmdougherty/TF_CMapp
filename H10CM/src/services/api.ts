@@ -342,141 +342,102 @@ export const updatePendingOrderStatus = async (
   status: PendingOrderStatus, 
   notes?: string
 ): Promise<PendingOrderItem> => {
-  // TODO: Replace with actual API call when backend is ready
-  // For now, use localStorage as temporary storage
   try {
-    const orders = JSON.parse(localStorage.getItem('pendingOrders') || '[]');
-    const updatedOrders = orders.map((order: PendingOrderItem) => {
-      if (order.pending_order_id === pending_order_id) {
-        const oldStatus = order.status;
-        const updatedOrder = {
-          ...order,
-          status,
-          notes: notes || order.notes,
-        };
-
-        // Set appropriate date and user fields based on status
-        if (status === 'ordered' && order.status === 'requested') {
-          updatedOrder.date_ordered = new Date();
-          updatedOrder.ordered_by = 'Current User'; // Will be updated with real user in component
-        } else if (status === 'shipped' && (order.status === 'ordered' || order.status === 'requested')) {
-          updatedOrder.date_shipped = new Date();
-          updatedOrder.shipped_by = 'Current User'; // Will be updated with real user in component
-        }
-
-        // Create notification for status change
-        smartNotifications.notifyOrderStatusChange(updatedOrder, oldStatus);
-
-        return updatedOrder;
-      }
-      return order;
+    // Map frontend status to backend status
+    const statusMapping: Record<PendingOrderStatus, string> = {
+      'requested': 'Pending',
+      'ordered': 'Ordered', 
+      'shipped': 'Received',
+      'partial': 'Received',
+      'received': 'Received',
+      'cancelled': 'Cancelled'
+    };
+    
+    const backendStatus = statusMapping[status] || status;
+    
+    // Update order status
+    await apiClient.put(`/orders/${pending_order_id}/status`, { 
+      status: backendStatus, 
+      notes 
     });
     
-    localStorage.setItem('pendingOrders', JSON.stringify(updatedOrders));
-    const updatedOrder = updatedOrders.find((order: PendingOrderItem) => order.pending_order_id === pending_order_id);
-    console.log('Updated order status (localStorage):', updatedOrder);
+    // Get the full order details from the API response
+    const { data: fullOrder } = await apiClient.get(`/orders/pending/${pending_order_id}`);
     
-    return updatedOrder;
+    console.log('Updated order status (API):', fullOrder);
+    
+    // Create notification for status change
+    smartNotifications.notifyOrderStatusChange(fullOrder, status);
+    
+    return fullOrder;
   } catch (error) {
     console.error('Error updating order status:', error);
     throw new Error('Failed to update order status');
   }
-  
-  // Original API call (commented out for now)
-  // const { data } = await apiClient.patch(`/pending-orders/${pending_order_id}/status`, { 
-  //   status, 
-  //   notes 
-  // });
-  // return data;
 };
 
 export const receiveOrderItems = async (request: ReceiveItemsRequest): Promise<BulkSubmissionResult> => {
-  // TODO: Replace with actual API call when backend is ready
-  // For now, use localStorage as temporary storage
   try {
-    const orders = JSON.parse(localStorage.getItem('pendingOrders') || '[]');
-    const updatedOrders: PendingOrderItem[] = [];
+    // For now, we'll handle this as a simple "mark entire order as received" operation
+    // In the future, this can be enhanced to handle partial receipts
     
-    orders.forEach((order: PendingOrderItem) => {
-      const receivedItem = request.items.find(item => item.pending_order_id === order.pending_order_id);
-      
-      if (receivedItem && receivedItem.quantity_received > 0) {
-        const remainingQty = order.quantity_requested - order.quantity_received - receivedItem.quantity_received;
-        
-        if (remainingQty > 0) {
-          // Create new order for remaining quantity
-          const remainingOrder = {
-            ...order,
-            pending_order_id: Date.now() + Math.random(), // New ID for remaining order
-            quantity_requested: remainingQty,
-            quantity_received: 0,
-            status: 'requested' as PendingOrderStatus,
-            notes: `Split from partial receipt of order #${order.pending_order_id}. Original qty: ${order.quantity_requested}, previously received: ${order.quantity_received}, this receipt: ${receivedItem.quantity_received}, remaining: ${remainingQty}`,
-            date_requested: new Date(), // Reset request date for new order
-          };
-          updatedOrders.push(remainingOrder);
+    const results = [];
+    const successfulItems = [];
+    const failedItems: Array<{ cartItemId: string; error: string }> = [];
+    
+    // Process each item in the request
+    for (const item of request.items) {
+      if (item.quantity_received > 0) {
+        try {
+          // Call the actual API to mark the order as received
+          const response = await markOrderAsReceived(item.pending_order_id);
+          
+          if (response.success) {
+            successfulItems.push(item.pending_order_id.toString());
+            results.push({
+              order_id: item.pending_order_id,
+              success: true,
+              message: response.message || 'Order marked as received successfully'
+            });
+          } else {
+            failedItems.push({
+              cartItemId: item.pending_order_id.toString(),
+              error: response.error || 'Failed to mark order as received'
+            });
+            results.push({
+              order_id: item.pending_order_id,
+              success: false,
+              message: response.error || 'Failed to mark order as received'
+            });
+          }
+        } catch (error) {
+          console.error(`Error marking order ${item.pending_order_id} as received:`, error);
+          failedItems.push({
+            cartItemId: item.pending_order_id.toString(),
+            error: `Failed to mark order as received: ${error instanceof Error ? error.message : 'Unknown error'}`
+          });
+          results.push({
+            order_id: item.pending_order_id,
+            success: false,
+            message: `Failed to mark order as received: ${error instanceof Error ? error.message : 'Unknown error'}`
+          });
         }
-        
-        // Mark original order as received with actual received quantity
-        const completedOrder = {
-          ...order,
-          quantity_received: order.quantity_received + receivedItem.quantity_received,
-          status: 'received' as PendingOrderStatus,
-          date_received: new Date(),
-          received_by: request.received_by || 'Unknown User',
-          notes: receivedItem.notes ? `${order.notes || ''}\n${receivedItem.notes}`.trim() : order.notes,
-        };
-        updatedOrders.push(completedOrder);
-        
-        // Create notification for received order
-        smartNotifications.createNotification({
-          type: 'success',
-          category: 'orders',
-          title: remainingQty > 0 ? 'Partial Order Received' : 'Order Received',
-          message: `Received ${receivedItem.quantity_received} ${order.unit_of_measure} of ${order.item_name}${remainingQty > 0 ? ` (${remainingQty} still pending)` : ''}`,
-          actionRequired: false,
-          relatedEntityType: 'order',
-          relatedEntityId: order.pending_order_id,
-          actionUrl: '/orders/pending',
-          actionLabel: 'View Orders',
-          metadata: { 
-            itemName: order.item_name,
-            quantityReceived: receivedItem.quantity_received,
-            quantityRemaining: remainingQty,
-            isPartial: remainingQty > 0
-          },
-          icon: remainingQty > 0 ? '📦' : '✅',
-        });
-        
-        // TODO: Add the received quantity to actual inventory here
-        console.log(`TODO: Add ${receivedItem.quantity_received} ${order.unit_of_measure} of ${order.item_name} to inventory`);
-        
-      } else {
-        // Keep unchanged orders
-        updatedOrders.push(order);
       }
-    });
+    }
     
-    localStorage.setItem('pendingOrders', JSON.stringify(updatedOrders));
-    console.log('Updated received items with split orders (localStorage):', updatedOrders);
-    
-    // Count successful items
-    const processedItems = request.items.filter(item => item.quantity_received > 0);
+    const successCount = successfulItems.length;
+    const failureCount = failedItems.length;
     
     return {
-      success: true,
-      message: `Successfully received ${processedItems.length} items. Partial receipts created separate orders for remaining quantities.`,
-      successfulItems: processedItems.map(item => item.pending_order_id.toString()),
-      failedItems: []
+      success: successCount > 0,
+      message: `Successfully received ${successCount} items${failureCount > 0 ? `, ${failureCount} failed` : ''}`,
+      successfulItems,
+      failedItems
     };
   } catch (error) {
     console.error('Error receiving items:', error);
     throw new Error('Failed to receive items');
   }
-  
-  // Original API call (commented out for now)
-  // const { data } = await apiClient.post('/pending-orders/receive', request);
-  // return data;
 };
 
 export const getPendingOrdersSummary = async (): Promise<PendingOrderSummary> => {

@@ -20,6 +20,11 @@ import {
   Divider,
   Tabs,
   Tab,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -33,6 +38,7 @@ import {
   MoreVert as MoreVertIcon,
   TrendingUp as StatsIcon,
   Assessment as AnalyticsIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import PageContainer from 'src/components/container/PageContainer';
 import Breadcrumb from 'src/layouts/full/shared/breadcrumb/Breadcrumb';
@@ -41,6 +47,7 @@ import { ProjectStatus } from 'src/types/Project';
 import {
   useGetProjects,
   useUpdateProject,
+  useDeleteProject,
   useGetProjectSteps,
 } from 'src/hooks/api/useProjectHooks';
 import { useTrackedItems } from 'src/hooks/api/useTrackedItemHooks';
@@ -108,6 +115,8 @@ const ProjectManagementDashboard = () => {
   const [statusMenuAnchorEl, setStatusMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0); // Add tab state for project filtering
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<any>(null);
 
   // Task management hooks
   const { data: currentTasks = [] } = useTasks();
@@ -116,6 +125,7 @@ const ProjectManagementDashboard = () => {
 
   // Update project mutation
   const updateProjectMutation = useUpdateProject();
+  const deleteProjectMutation = useDeleteProject();
 
   const handleAddProjectClick = () => {
     setAddProjectModalOpen(true);
@@ -168,6 +178,30 @@ const ProjectManagementDashboard = () => {
     }
 
     handleStatusMenuClose();
+  };
+
+  // Delete project handlers
+  const handleDeleteProject = (project: any) => {
+    setProjectToDelete(project);
+    setDeleteDialogOpen(true);
+    handleStatusMenuClose();
+  };
+
+  const handleDeleteDialogClose = () => {
+    setDeleteDialogOpen(false);
+    setProjectToDelete(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+
+    try {
+      await deleteProjectMutation.mutateAsync(projectToDelete.project_id.toString());
+      handleDeleteDialogClose();
+    } catch (error) {
+      console.error('Failed to delete project:', error);
+      // Error notification is handled by the useDeleteProject hook
+    }
   };
 
   const statusOptions: ProjectStatus[] = [
@@ -541,7 +575,65 @@ const ProjectManagementDashboard = () => {
             </MenuItem>
           );
         })}
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            const selectedProject = sortedProjects?.find(
+              (p) => p.project_id.toString() === selectedProjectId,
+            );
+            if (selectedProject) {
+              handleDeleteProject(selectedProject);
+            }
+          }}
+          disabled={deleteProjectMutation.isPending}
+          sx={{ color: 'error.main' }}
+        >
+          <ListItemIcon>
+            <DeleteIcon fontSize="small" sx={{ color: 'error.main' }} />
+          </ListItemIcon>
+          <ListItemText primary="Delete Project" />
+        </MenuItem>
       </Menu>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteDialogClose}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">Delete Project</DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete the project "{projectToDelete?.project_name}"?
+            <br />
+            <br />
+            This action cannot be undone and will permanently remove:
+            <br />
+            • All project data and settings
+            <br />
+            • Associated tasks and tracked items
+            <br />
+            • Production history and statistics
+            <br />
+            <br />
+            Please confirm that you want to proceed with this deletion.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteDialogClose} disabled={deleteProjectMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDelete}
+            color="error"
+            variant="contained"
+            disabled={deleteProjectMutation.isPending}
+          >
+            {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <AddProjectModal
         open={addProjectModalOpen}

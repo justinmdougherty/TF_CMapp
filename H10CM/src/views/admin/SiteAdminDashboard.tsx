@@ -38,12 +38,14 @@ import {
   MoreVert as MoreVertIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  Code as CodeIcon,
 } from '@mui/icons-material';
 import PageContainer from 'src/components/container/PageContainer';
 import Breadcrumb from 'src/layouts/full/shared/breadcrumb/Breadcrumb';
 import { useRBAC } from '../../context/RBACContext';
 import UserManagementDashboard from '../../components/admin/UserManagementDashboard';
 import LoginComponent from '../../components/auth/LoginComponent';
+import APIDocumentation from '../../components/admin/APIDocumentation';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -433,6 +435,7 @@ const SiteAdminDashboard: React.FC = () => {
             <Tab label="System Security" icon={<SecurityIcon />} />
             <Tab label="System Settings" icon={<SettingsIcon />} />
             <Tab label="Analytics" icon={<AnalyticsIcon />} />
+            <Tab label="API Documentation" icon={<CodeIcon />} />
           </Tabs>
         </Box>
 
@@ -863,6 +866,11 @@ const SiteAdminDashboard: React.FC = () => {
           <Alert severity="info">
             System analytics and reporting will be available in a future update.
           </Alert>
+        </TabPanel>
+
+        {/* API Documentation Tab */}
+        <TabPanel value={currentTab} index={4}>
+          <APIDocumentation isVisible={currentTab === 4} />
         </TabPanel>
       </Card>
     </PageContainer>

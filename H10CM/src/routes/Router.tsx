@@ -33,6 +33,9 @@ const NotificationTestComponent = Loadable(
 const SiteAdminDashboard = Loadable(lazy(() => import('../views/admin/SiteAdminDashboard')));
 const AnalyticsDashboard = Loadable(lazy(() => import('../views/analytics/AnalyticsDashboard')));
 const MyTasksPage = Loadable(lazy(() => import('../views/tasks/MyTasksPage')));
+const ProcurementManagementDashboard = Loadable(
+  lazy(() => import('../views/procurement/ProcurementManagementDashboard')),
+);
 
 const Router = [
   {
@@ -42,6 +45,7 @@ const Router = [
       { path: '/', element: <Navigate to="/dashboard" /> },
       { path: '/dashboard', exact: true, element: <ProjectsDashboardPage /> },
       { path: '/project-management', element: <ProjectManagementDashboard /> },
+      { path: '/procurement', element: <ProcurementManagementDashboard /> },
       { path: '/project/:projectId', element: <ProjectDetailPage /> },
       // Add new routes
       { path: '/inventory', element: <InventoryPage /> },

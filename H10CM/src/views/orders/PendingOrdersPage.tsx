@@ -300,26 +300,6 @@ const PendingOrdersPage = () => {
       statusUpdateNotes,
     );
 
-    // Then update localStorage with the correct user information
-    const orders = JSON.parse(localStorage.getItem('pendingOrders') || '[]');
-    const updatedOrders = orders.map((order: any) => {
-      if (order.pending_order_id === selectedOrderForStatusUpdate.pending_order_id) {
-        const updated = { ...order, ...updatedOrder };
-
-        // Set the correct user based on status
-        if (newStatus === 'ordered') {
-          updated.ordered_by = currentUser.displayName || 'Unknown User';
-        } else if (newStatus === 'shipped') {
-          updated.shipped_by = currentUser.displayName || 'Unknown User';
-        }
-
-        return updated;
-      }
-      return order;
-    });
-
-    localStorage.setItem('pendingOrders', JSON.stringify(updatedOrders));
-
     // Close dialog and refresh data
     setStatusUpdateDialogOpen(false);
     setStatusUpdateNotes('');
