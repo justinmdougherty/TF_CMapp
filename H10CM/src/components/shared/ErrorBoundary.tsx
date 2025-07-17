@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography, Button, Container, Alert } from '@mui/material';
 import { RefreshRounded, HomeRounded } from '@mui/icons-material';
+import { debugService } from '../../services/debugService';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -20,6 +21,7 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Error Boundary Caught:', error, errorInfo);
+    debugService.debugError('Error Boundary Caught:', { error, errorInfo });
     this.setState({ error, errorInfo });
   }
 
@@ -86,6 +88,23 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
                 <Typography variant="body2" component="pre" sx={{ fontSize: '0.75rem' }}>
                   {this.state.errorInfo.componentStack}
                 </Typography>
+              </Alert>
+            )}
+
+            {debugService.shouldShowErrorDetails() && this.state.error && (
+              <Alert severity="warning" sx={{ mt: 3, textAlign: 'left' }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Debug Information (Admin Only):
+                </Typography>
+                <Typography variant="body2" component="pre" sx={{ fontSize: '0.75rem' }}>
+                  {this.state.error.message}
+                </Typography>
+                {this.state.error.stack && (
+                  <Typography variant="body2" component="pre" sx={{ fontSize: '0.7rem', mt: 1 }}>
+                    Stack Trace:
+                    {this.state.error.stack}
+                  </Typography>
+                )}
               </Alert>
             )}
           </Box>

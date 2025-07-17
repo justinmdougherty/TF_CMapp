@@ -33,6 +33,9 @@ const NotificationTestComponent = Loadable(
 const SiteAdminDashboard = Loadable(lazy(() => import('../views/admin/SiteAdminDashboard')));
 const AnalyticsDashboard = Loadable(lazy(() => import('../views/analytics/AnalyticsDashboard')));
 const MyTasksPage = Loadable(lazy(() => import('../views/tasks/MyTasksPage')));
+const ProcurementManagementDashboard = Loadable(
+  lazy(() => import('../views/procurement/ProcurementManagementDashboard')),
+);
 
 const Router = [
   {
@@ -46,6 +49,7 @@ const Router = [
       // Add new routes
       { path: '/inventory', element: <InventoryPage /> },
       { path: '/orders/pending', element: <PendingOrdersPage /> },
+      { path: '/procurement', element: <ProcurementManagementDashboard /> },
       { path: '/analytics', element: <AnalyticsDashboard /> },
       // { path: '/apps/notes', element: <NotesPage /> },
       // { path: '/apps/calendar', element: <CalendarPage /> },

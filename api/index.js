@@ -959,6 +959,102 @@ const createProgramLogic = async (req, res, pool) => {
     }
 };
 
+// GET debug settings
+app.get('/api/admin/debug-settings', authenticateUser, async (req, res) => {
+    try {
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'System Admin access required' });
+        }
+
+        const pool = req.app.locals.db;
+        if (!pool) {
+            return res.status(500).json({ error: 'Database not connected' });
+        }
+
+        // Get debug settings from database or return defaults
+        const result = await pool.request()
+            .query('SELECT setting_key, setting_value FROM SystemSettings WHERE setting_key LIKE \'debug_%\'');
+
+        const debugSettings = {};
+        result.recordset.forEach(row => {
+            debugSettings[row.setting_key] = row.setting_value === 'true';
+        });
+
+        // Return defaults if no settings found
+        const defaultSettings = {
+            debug_enabled: false,
+            debug_verbose_logging: false,
+            debug_show_error_details: false,
+            debug_show_sql_errors: false,
+            debug_network_requests: false
+        };
+
+        res.json({ ...defaultSettings, ...debugSettings });
+    } catch (error) {
+        console.error('Error getting debug settings:', error);
+        res.status(500).json({ error: 'Failed to get debug settings' });
+    }
+});
+
+// POST debug settings
+app.post('/api/admin/debug-settings', authenticateUser, async (req, res) => {
+    try {
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'System Admin access required' });
+        }
+
+        const pool = req.app.locals.db;
+        if (!pool) {
+            return res.status(500).json({ error: 'Database not connected' });
+        }
+
+        const { settings } = req.body;
+        
+        // Validate settings
+        const validSettings = [
+            'debug_enabled',
+            'debug_verbose_logging', 
+            'debug_show_error_details',
+            'debug_show_sql_errors',
+            'debug_network_requests'
+        ];
+
+        for (const [key, value] of Object.entries(settings)) {
+            if (!validSettings.includes(key)) {
+                return res.status(400).json({ error: `Invalid setting: ${key}` });
+            }
+            if (typeof value !== 'boolean') {
+                return res.status(400).json({ error: `Setting ${key} must be a boolean` });
+            }
+        }
+
+        // Update or insert settings
+        for (const [key, value] of Object.entries(settings)) {
+            await pool.request()
+                .input('setting_key', sql.NVarChar, key)
+                .input('setting_value', sql.NVarChar, value.toString())
+                .input('updated_by', sql.NVarChar, req.user.user_name)
+                .query(`
+                    IF EXISTS (SELECT 1 FROM SystemSettings WHERE setting_key = @setting_key)
+                        UPDATE SystemSettings 
+                        SET setting_value = @setting_value, updated_by = @updated_by, updated_date = GETDATE()
+                        WHERE setting_key = @setting_key
+                    ELSE
+                        INSERT INTO SystemSettings (setting_key, setting_value, updated_by, updated_date)
+                        VALUES (@setting_key, @setting_value, @updated_by, GETDATE())
+                `);
+        }
+
+        res.json({ 
+            message: 'Debug settings updated successfully',
+            settings: settings
+        });
+    } catch (error) {
+        console.error('Error updating debug settings:', error);
+        res.status(500).json({ error: 'Failed to update debug settings' });
+    }
+});
+
 // =============================================================================
 // SHOPPING CART & PROCUREMENT ENDPOINTS
 // =============================================================================

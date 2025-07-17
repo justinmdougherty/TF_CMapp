@@ -27,6 +27,7 @@ import {
   IconShoppingCart,   // For Pending Orders
   IconUserCog,        // For Admin Dashboard
   IconChartLine,      // For Analytics Dashboard
+  IconCreditCard,     // For Procurement
 } from '@tabler/icons-react';
 
 const Menuitems: MenuitemsType[] = [
@@ -61,6 +62,12 @@ const Menuitems: MenuitemsType[] = [
     title: 'Pending Orders',
     icon: IconShoppingCart,
     href: '/orders/pending',
+  },
+  {
+    id: uniqueId(),
+    title: 'Procurement',
+    icon: IconCreditCard,
+    href: '/procurement',
   },
   {
     id: uniqueId(),

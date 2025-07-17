@@ -38,6 +38,12 @@ H10CM/
 └── README.md              # This file
 ```
 
+## Developer thoughts for new items and additional features and fixes
+
+- List of roles and access based on role, option to customize access on a user by user basis
+
+- Inventory item delete option does not function, also has standard alert dialog, need to provide a dialog that matches the rest of the app
+
 ## ✅ Completed Features
 
 *Last Updated: July 15, 2025 - Analysis based on actual codebase state*

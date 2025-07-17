@@ -32,6 +32,7 @@ import {
   IconUserCog,        // For Admin Dashboard
   IconChartLine,      // For Analytics Dashboard
   IconChecklist,      // For My Tasks
+  IconCreditCard,     // For Procurement
 } from '@tabler/icons-react';
 
 const BaseMenuItems: MenuitemsType[] = [
@@ -72,6 +73,12 @@ const BaseMenuItems: MenuitemsType[] = [
     title: 'Pending Orders',
     icon: IconShoppingCart,
     href: '/orders/pending',
+  },
+  {
+    id: uniqueId(),
+    title: 'Procurement',
+    icon: IconCreditCard,
+    href: '/procurement',
   },
   {
     id: uniqueId(),

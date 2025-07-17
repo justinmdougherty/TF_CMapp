@@ -39,6 +39,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Code as CodeIcon,
+  BugReport as BugReportIcon,
 } from '@mui/icons-material';
 import PageContainer from 'src/components/container/PageContainer';
 import Breadcrumb from 'src/layouts/full/shared/breadcrumb/Breadcrumb';
@@ -46,6 +47,7 @@ import { useRBAC } from '../../context/RBACContext';
 import UserManagementDashboard from '../../components/admin/UserManagementDashboard';
 import LoginComponent from '../../components/auth/LoginComponent';
 import APIDocumentation from '../../components/admin/APIDocumentation';
+import DebugControlPanel from '../../components/admin/DebugControlPanel';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -436,6 +438,7 @@ const SiteAdminDashboard: React.FC = () => {
             <Tab label="System Settings" icon={<SettingsIcon />} />
             <Tab label="Analytics" icon={<AnalyticsIcon />} />
             <Tab label="API Documentation" icon={<CodeIcon />} />
+            <Tab label="Debug Control" icon={<BugReportIcon />} />
           </Tabs>
         </Box>
 
@@ -871,6 +874,11 @@ const SiteAdminDashboard: React.FC = () => {
         {/* API Documentation Tab */}
         <TabPanel value={currentTab} index={4}>
           <APIDocumentation isVisible={currentTab === 4} />
+        </TabPanel>
+
+        {/* Debug Control Panel Tab */}
+        <TabPanel value={currentTab} index={5}>
+          <DebugControlPanel currentUser={currentUser} />
         </TabPanel>
       </Card>
     </PageContainer>
