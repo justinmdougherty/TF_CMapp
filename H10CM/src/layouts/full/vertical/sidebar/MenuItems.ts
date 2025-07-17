@@ -27,7 +27,6 @@ import {
   IconShoppingCart,   // For Pending Orders
   IconUserCog,        // For Admin Dashboard
   IconChartLine,      // For Analytics Dashboard
-  IconCurrencyDollar, // For Procurement Management
 } from '@tabler/icons-react';
 
 const Menuitems: MenuitemsType[] = [
@@ -50,12 +49,6 @@ const Menuitems: MenuitemsType[] = [
     title: 'Project Management',
     icon: IconSettings,
     href: '/project-management',
-  },
-  {
-    id: uniqueId(),
-    title: 'Procurement Management',
-    icon: IconCurrencyDollar,
-    href: '/procurement',
   },
   {
     id: uniqueId(),
