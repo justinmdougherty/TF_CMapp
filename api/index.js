@@ -258,39 +258,33 @@ app.get("/api/auth/me", authenticateUser, (req, res) => {
 
   const clientCert = req.headers['x-arr-clientcert'] || DEFAULT_USER_CERT;
 
-  const response = {
+  res.json({
     user: {
       user_id: req.user.user_id,
       username: req.user.user_name,
       displayName: req.user.display_name,
       is_system_admin: req.user.is_system_admin,
       program_access: req.user.program_access,
-      accessible_programs: req.user.accessible_programs
-    }
-  };
-
-  // Only include certificate and debug info for system admins
-  if (req.user.is_system_admin) {
-    response.user.certificateInfo = {
-      subject: clientCert,
-      issuer: req.headers['x-arr-ssl'] || "",
-      serialNumber: ""
-    };
-    response.headers = {
+      accessible_programs: req.user.accessible_programs,
+      certificateInfo: {
+        subject: clientCert,
+        issuer: req.headers['x-arr-ssl'] || "",
+        serialNumber: ""
+      }
+    },
+    headers: {
       ...req.headers,
       'x-arr-clientcert': clientCert
-    };
-    response.extractedFrom = req.headers['x-arr-clientcert'] ? 'certificate' : 'fallback';
-    response.request = {
+    },
+    extractedFrom: req.headers['x-arr-clientcert'] ? 'certificate' : 'fallback',
+    request: {
       ip: req.headers['x-forwarded-for'] || req.ip,
       method: req.method,
       path: req.path,
       protocol: req.protocol,
       secure: req.secure
-    };
-  }
-
-  res.json(response);
+    }
+  });
 });
 
 // =============================================================================
@@ -568,95 +562,6 @@ app.put('/api/projects/:id', authenticateUser, async (req, res) => {
     }
 });
 
-// DELETE project (with program and access validation)
-app.delete('/api/projects/:id', authenticateUser, async (req, res) => {
-    try {
-        const pool = req.app.locals.db;
-        const projectId = parseInt(req.params.id, 10);
-        
-        // First, verify user has access to this project's program
-        const checkResult = await pool.request()
-            .input('project_id', sql.Int, projectId)
-            .query('SELECT program_id FROM Projects WHERE project_id = @project_id');
-            
-        if (checkResult.recordset.length === 0) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-        
-        const projectProgramId = checkResult.recordset[0].program_id;
-        
-        // Check program access
-        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(projectProgramId)) {
-            return res.status(403).json({ error: 'Access denied to this project' });
-        }
-        
-        // Check write access level (Admin level required for deletion)
-        if (!req.user.is_system_admin) {
-            const programAccess = req.user.program_access.find(p => p.program_id === projectProgramId);
-            if (!programAccess || programAccess.access_level !== 'Admin') {
-                return res.status(403).json({ error: 'Admin access required to delete projects' });
-            }
-        }
-        
-        // Begin transaction to ensure all deletions succeed or fail together
-        const transaction = new sql.Transaction(pool);
-        await transaction.begin();
-        
-        try {
-            // Delete related records first (in correct order due to foreign key constraints)
-            // Note: Only deleting tables that actually exist in the current database
-            
-            // 1. Delete Tasks (depends on Projects)
-            await transaction.request()
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM Tasks WHERE project_id = @project_id');
-            
-            // 2. Delete ProjectAccess (depends on Projects)
-            await transaction.request()
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM ProjectAccess WHERE project_id = @project_id');
-            
-            // 3. Delete UserRoles (depends on Projects)
-            await transaction.request()
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM UserRoles WHERE project_id = @project_id');
-            
-            // 4. Delete ProjectSteps (depends on Projects - has CASCADE DELETE)
-            await transaction.request()
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM ProjectSteps WHERE project_id = @project_id');
-            
-            // 5. Delete TrackedItems (depends on Projects - has CASCADE DELETE)
-            await transaction.request()
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM TrackedItems WHERE project_id = @project_id');
-            
-            // 6. Finally, delete the project itself
-            await transaction.request()
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM Projects WHERE project_id = @project_id');
-            
-            // Commit the transaction
-            await transaction.commit();
-            
-            res.json({ 
-                success: true, 
-                message: 'Project deleted successfully',
-                project_id: projectId 
-            });
-            
-        } catch (transactionError) {
-            // Rollback the transaction on error
-            await transaction.rollback();
-            throw transactionError;
-        }
-        
-    } catch (error) {
-        console.error('Error deleting project:', error);
-        res.status(500).json({ error: 'Failed to delete project: ' + error.message });
-    }
-});
-
 // =============================================================================
 // TASK ENDPOINTS (WITH PROGRAM FILTERING)
 // =============================================================================
@@ -728,16 +633,11 @@ app.get('/api/inventory-items', authenticateUser, async (req, res) => {
                    ii.description, ii.category, ii.unit_of_measure, ii.current_stock_level,
                    ii.reorder_point, ii.cost_per_unit, ii.location, ii.is_active,
                    ii.supplier_info, ii.max_stock_level, ii.date_created, ii.last_modified,
-                   ii.program_id, u.display_name as created_by_name
+                   u.display_name as created_by_name
             FROM InventoryItems ii
             LEFT JOIN Users u ON ii.created_by = u.user_id
             WHERE ii.is_active = 1
         `;
-        
-        // Filter by program access for non-admin users
-        if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
-            query += ` AND ii.program_id IN (${req.user.accessible_programs.join(',')})`;
-        }
         
         // Add any additional filters
         if (req.query.category) {
@@ -750,16 +650,7 @@ app.get('/api/inventory-items', authenticateUser, async (req, res) => {
         
         query += ` ORDER BY ii.item_name`;
         
-        const request = new sql.Request(app.locals.db);
-        const result = await request.query(query);
-        
-        // Filter results by user's program access if not system admin
-        let filteredData = result.recordset;
-        if (!req.user.is_system_admin && filteredData.length > 0 && filteredData[0].hasOwnProperty('program_id')) {
-            filteredData = filterByProgramAccess(filteredData, req.user);
-        }
-        
-        res.json({ data: filteredData });
+        await executeQuery(req, res, query);
     } catch (error) {
         console.error('Error getting inventory items:', error);
         res.status(500).json({ error: 'Failed to get inventory items' });
@@ -1278,71 +1169,6 @@ app.get('/api/orders/pending', authenticateUser, async (req, res) => {
     }
 });
 
-// GET specific pending order by ID
-app.get('/api/orders/pending/:orderId', authenticateUser, async (req, res) => {
-    try {
-        const orderId = parseInt(req.params.orderId);
-        
-        // Validate order ID
-        if (isNaN(orderId) || orderId <= 0) {
-            return res.status(400).json({ error: 'Invalid order ID' });
-        }
-
-        console.log(`Getting pending order ${orderId} for user ${req.user.user_id}`);
-
-        // Execute query to get specific order
-        const pool = req.app.locals.db;
-        const request = pool.request();
-        request.input('user_id', sql.Int, req.user.user_id);
-        request.input('order_id', sql.Int, orderId);
-        
-        const result = await pool.request()
-            .input('user_id', sql.Int, req.user.user_id)
-            .query(`
-                SELECT 
-                    po.order_id as pending_order_id,
-                    po.order_number,
-                    po.user_id,
-                    po.project_id,
-                    po.status,
-                    po.total_estimated_cost,
-                    po.supplier_info,
-                    po.order_notes as notes,
-                    po.date_created,
-                    po.date_approved,
-                    po.approved_by,
-                    po.date_ordered,
-                    po.ordered_by,
-                    po.expected_delivery_date,
-                    po.actual_delivery_date,
-                    po.last_modified,
-                    poi.inventory_item_id,
-                    ii.item_name,
-                    ii.unit_of_measure,
-                    poi.quantity_ordered as quantity_requested,
-                    poi.unit_cost,
-                    poi.total_cost,
-                    poi.notes as item_notes
-                FROM PendingOrders po
-                INNER JOIN PendingOrderItems poi ON po.order_id = poi.order_id
-                INNER JOIN InventoryItems ii ON poi.inventory_item_id = ii.inventory_item_id
-                INNER JOIN ProgramAccess pa ON po.program_id = pa.program_id
-                WHERE po.order_id = @order_id AND pa.user_id = @user_id
-            `);
-
-        if (result.recordset.length === 0) {
-            return res.status(404).json({ error: 'Order not found' });
-        }
-
-        // Return the first record (assuming single order item for now)
-        const order = result.recordset[0];
-        res.json(order);
-    } catch (error) {
-        console.error('Error getting pending order:', error);
-        res.status(500).json({ error: 'Failed to get pending order' });
-    }
-});
-
 // PUT mark order as received (updates inventory and order status)
 app.put('/api/orders/:orderId/received', authenticateUser, async (req, res) => {
     try {
@@ -1386,61 +1212,6 @@ app.put('/api/orders/:orderId/received', authenticateUser, async (req, res) => {
     } catch (error) {
         console.error('Error marking order as received:', error);
         res.status(500).json({ error: 'Failed to mark order as received' });
-    }
-});
-
-// PUT update order status (general status update endpoint)
-app.put('/api/orders/:orderId/status', authenticateUser, async (req, res) => {
-    try {
-        const orderId = parseInt(req.params.orderId);
-        const { status, notes } = req.body;
-        
-        // Validate order ID
-        if (isNaN(orderId) || orderId <= 0) {
-            return res.status(400).json({ error: 'Invalid order ID' });
-        }
-
-        // Validate status
-        const validStatuses = ['Pending', 'Approved', 'Ordered', 'Received', 'Cancelled'];
-        if (!status || !validStatuses.includes(status)) {
-            return res.status(400).json({ error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') });
-        }
-
-        console.log(`Updating order ${orderId} status to ${status} by user ${req.user.user_id}`);
-
-        // Build the JSON object for the stored procedure
-        const orderUpdateJson = {
-            order_id: orderId,
-            user_id: req.user.user_id,
-            status: status,
-            notes: notes || null
-        };
-
-        console.log('Updating order status with JSON:', JSON.stringify(orderUpdateJson, null, 2));
-
-        // Execute the stored procedure with JSON parameter
-        const pool = req.app.locals.db;
-        const request = pool.request();
-        request.input('OrderUpdateJson', sql.NVarChar, JSON.stringify(orderUpdateJson));
-        
-        const result = await request.execute('usp_UpdateOrderStatus');
-        
-        // Parse JSON result
-        if (result.recordset && result.recordset.length > 0) {
-            const jsonResult = result.recordset[0].JsonResult;
-            const data = JSON.parse(jsonResult);
-            
-            if (data.error) {
-                return res.status(400).json(data);
-            }
-            
-            res.json(data);
-        } else {
-            res.status(500).json({ error: 'No result returned from stored procedure' });
-        }
-    } catch (error) {
-        console.error('Error updating order status:', error);
-        res.status(500).json({ error: 'Failed to update order status' });
     }
 });
 
