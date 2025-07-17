@@ -11,6 +11,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "axios": "^1.10.0",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
@@ -18,11 +19,11 @@
     "mssql": "^10.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1",
-    "jest": "^29.7.0",
-    "supertest": "^6.3.3",
     "@types/jest": "^29.5.8",
-    "@types/supertest": "^2.0.16"
+    "@types/supertest": "^2.0.16",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1",
+    "supertest": "^6.3.3"
   },
   "author": "",
   "license": "ISC"

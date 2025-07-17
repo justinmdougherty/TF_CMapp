@@ -633,7 +633,7 @@ app.get('/api/inventory-items', authenticateUser, async (req, res) => {
                    ii.description, ii.category, ii.unit_of_measure, ii.current_stock_level,
                    ii.reorder_point, ii.cost_per_unit, ii.location, ii.is_active,
                    ii.supplier_info, ii.max_stock_level, ii.date_created, ii.last_modified,
-                   u.display_name as created_by_name
+                   ii.program_id, u.display_name as created_by_name
             FROM InventoryItems ii
             LEFT JOIN Users u ON ii.created_by = u.user_id
             WHERE ii.is_active = 1

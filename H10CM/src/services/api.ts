@@ -184,10 +184,10 @@ export const getInventoryByProject = async (projectId: number): Promise<Inventor
   return data;
 };
 
-// The API returns { data: InventoryItem[] }
+// The API returns InventoryItem[] directly, but we wrap it for consistency
 export const getAllInventory = async (): Promise<{ data: InventoryItem[] }> => {
   const response = await apiClient.get('/inventory-items');
-  return response.data;
+  return { data: response.data };
 };
 
 export const addInventoryItem = async (newItem: Omit<InventoryItem, 'inventory_item_id'>): Promise<InventoryItem> => {
