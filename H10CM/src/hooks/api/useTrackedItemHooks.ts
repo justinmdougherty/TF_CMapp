@@ -28,7 +28,7 @@ export const useTrackedItemDetails = (itemId: string | undefined) => {
 
 export const useCreateTrackedItem = () => {
   const queryClient = useQueryClient();
-  return useMutation<TrackedItem, Error, Omit<TrackedItem, 'item_id' | 'date_created'>>({
+  return useMutation<TrackedItem, Error, Omit<TrackedItem, 'item_id' | 'date_created' | 'last_modified'>>({
     mutationFn: createTrackedItem,
     onSuccess: (data) => {
       // Invalidate the specific project's tracked items

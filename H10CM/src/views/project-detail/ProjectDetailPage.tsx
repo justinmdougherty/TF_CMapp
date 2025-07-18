@@ -65,6 +65,8 @@ const getStatusConfig = (status: ProjectStatus) => {
 const ProjectDetailPage = () => {
   const { projectId } = useParams<{ projectId: string }>();
 
+  console.log('🔍 ProjectDetailPage: Component rendered with projectId:', projectId);
+
   // Hooks for project data
   const {
     data: project,
@@ -79,6 +81,17 @@ const ProjectDetailPage = () => {
     isError: isErrorSteps,
     error: errorSteps,
   } = useGetProjectSteps(projectId);
+
+  console.log('🔍 ProjectDetailPage: Project data state:', {
+    projectId,
+    project,
+    isLoadingProject,
+    isErrorProject,
+    errorProject: errorProject?.message,
+    isLoadingSteps,
+    isErrorSteps,
+    errorSteps: errorSteps?.message,
+  });
 
   const steps = stepsData || [];
 
@@ -108,10 +121,120 @@ const ProjectDetailPage = () => {
     return (
       <PageContainer title="Error" description="Error loading project">
         <Breadcrumb title="Error" items={BCrumb} />
-        <Typography color="error">
-          Error fetching project data:{' '}
-          {errorProject?.message || errorSteps?.message || 'An unknown error occurred'}
-        </Typography>
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h5" color="error" gutterBottom>
+            🚨 Detailed Error Information
+          </Typography>
+
+          <Paper sx={{ p: 2, mb: 3, bgcolor: 'error.light', color: 'error.contrastText' }}>
+            <Typography variant="h6" gutterBottom>
+              Primary Error Message:
+            </Typography>
+            <Typography variant="body1" sx={{ fontFamily: 'monospace', mb: 2 }}>
+              {errorProject?.message || errorSteps?.message || 'An unknown error occurred'}
+            </Typography>
+          </Paper>
+
+          <Paper sx={{ p: 2, mb: 3, bgcolor: 'info.light', color: 'info.contrastText' }}>
+            <Typography variant="h6" gutterBottom>
+              🔍 Debug Information:
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Project ID from URL:</strong> {projectId || 'undefined'}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Project API Error:</strong> {isErrorProject ? 'YES' : 'NO'}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Steps API Error:</strong> {isErrorSteps ? 'YES' : 'NO'}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Current URL:</strong> {window.location.href}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Expected API URLs:</strong>
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', ml: 2, mb: 1 }}>
+              • Project: /api/projects/{projectId}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', ml: 2, mb: 1 }}>
+              • Steps: /api/projects/{projectId}/steps
+            </Typography>
+          </Paper>
+
+          <Paper sx={{ p: 2, mb: 3, bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+            <Typography variant="h6" gutterBottom>
+              🔧 Full Error Objects:
+            </Typography>
+
+            {errorProject && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  Project API Error:
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}
+                >
+                  {JSON.stringify(errorProject, null, 2)}
+                </Typography>
+              </Box>
+            )}
+
+            {errorSteps && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  Steps API Error:
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}
+                >
+                  {JSON.stringify(errorSteps, null, 2)}
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+
+          <Paper sx={{ p: 2, mb: 3, bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
+            <Typography variant="h6" gutterBottom>
+              🛜 Network Information:
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Base URL:</strong> {window.location.origin}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>API Base:</strong> {window.location.origin}/api
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Browser:</strong> {navigator.userAgent}
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', mb: 1 }}>
+              <strong>Timestamp:</strong> {new Date().toISOString()}
+            </Typography>
+          </Paper>
+
+          <Paper sx={{ p: 2, bgcolor: 'success.light', color: 'success.contrastText' }}>
+            <Typography variant="h6" gutterBottom>
+              🔨 Debugging Steps:
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              1. Check the browser's Network tab for the actual API requests
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              2. Verify the backend API server is running on port 3000
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              3. Check if the project ID exists in the database
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              4. Verify authentication headers are being sent
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              5. Check console logs for additional debug information
+            </Typography>
+          </Paper>
+        </Box>
       </PageContainer>
     );
   }
@@ -170,7 +293,19 @@ const ProjectDetailPage = () => {
         Production Tracking
       </Typography>
 
-      <BatchTrackingComponent project={project} steps={steps} />
+      {steps && steps.length > 0 ? (
+        <BatchTrackingComponent project={project} steps={steps} />
+      ) : (
+        <Paper sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            No Production Steps Defined
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            This project doesn't have any production steps configured yet. Production steps define
+            the workflow and tracking for this project.
+          </Typography>
+        </Paper>
+      )}
     </PageContainer>
   );
 };

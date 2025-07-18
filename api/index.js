@@ -10,11 +10,17 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Import route modules
+const procurementRoutes = require('./routes/procurement');
+
 // -----------------------------------------------------------------------------
 // MIDDLEWARE
 // -----------------------------------------------------------------------------
 app.use(cors());
 app.use(express.json());
+
+// Pretty JSON middleware - formats all JSON responses with indentation
+app.set('json spaces', 2);
 
 // -----------------------------------------------------------------------------
 // DATABASE CONFIGURATION & CONNECTION
@@ -103,7 +109,12 @@ const authenticateUser = async (req, res, next) => {
 // Check if user has access to specific program
 const checkProgramAccess = (requiredLevel = 'Read') => {
     return (req, res, next) => {
-        const programId = req.params.programId || req.query.program_id || req.body.program_id;
+        let programId = req.params.programId || req.query.program_id || req.body.program_id;
+        
+        // If no program_id provided, use user's first accessible program as default
+        if (!programId && req.user.accessible_programs && req.user.accessible_programs.length > 0) {
+            programId = req.user.accessible_programs[0];
+        }
         
         if (!programId) {
             return res.status(400).json({ error: 'Program ID required' });
@@ -214,22 +225,42 @@ const executeProcedure = async (res, procedureName, params = []) => {
         
         res.setHeader('Content-Type', 'application/json');
 
-        if (result.recordset && result.recordset.length > 0 && result.recordset[0][Object.keys(result.recordset[0])[0]]) {
-            const jsonResultString = result.recordset[0][Object.keys(result.recordset[0])[0]];
-            console.log('JSON result string:', jsonResultString);
-            const data = JSON.parse(jsonResultString);
+        if (result.recordset && result.recordset.length > 0) {
+            const firstRow = result.recordset[0];
+            const firstColumn = firstRow[Object.keys(firstRow)[0]];
             
-            if (data.error) {
-                console.log('Procedure returned error:', data.error);
-                return res.status(400).send(JSON.stringify(data, null, 2));
+            // Check if this is a JSON string response (like from some procedures)
+            if (typeof firstColumn === 'string' && Object.keys(firstRow).length === 1) {
+                try {
+                    console.log('JSON result string:', firstColumn);
+                    const data = JSON.parse(firstColumn);
+                    
+                    if (data.error) {
+                        console.log('Procedure returned error:', data.error);
+                        return res.status(400).send(JSON.stringify(data, null, 2));
+                    }
+                    if (data.SuccessMessage || data.WarningMessage) {
+                        console.log('Procedure returned success/warning:', data);
+                        return res.status(200).send(JSON.stringify(data, null, 2));
+                    }
+                    
+                    console.log('Procedure returned JSON data:', data);
+                    res.status(200).send(JSON.stringify(data, null, 2));
+                } catch (parseError) {
+                    // If JSON parsing fails, treat as structured data
+                    console.log('Procedure returned structured data (single row):', firstRow);
+                    res.status(200).send(JSON.stringify(firstRow, null, 2));
+                }
+            } else {
+                // This is structured data (like from usp_SaveProject)
+                if (result.recordset.length === 1) {
+                    console.log('Procedure returned structured data (single row):', firstRow);
+                    res.status(200).send(JSON.stringify(firstRow, null, 2));
+                } else {
+                    console.log('Procedure returned structured data (multiple rows):', result.recordset);
+                    res.status(200).send(JSON.stringify(result.recordset, null, 2));
+                }
             }
-            if (data.SuccessMessage || data.WarningMessage) {
-                console.log('Procedure returned success/warning:', data);
-                return res.status(200).send(JSON.stringify(data, null, 2));
-            }
-            
-            console.log('Procedure returned data:', data);
-            res.status(200).send(JSON.stringify(data, null, 2));
         } else {
             console.log('Procedure returned empty result');
             res.status(200).send('[]');
@@ -513,6 +544,295 @@ app.get('/api/projects/:id', authenticateUser, async (req, res) => {
     }
 });
 
+// GET project steps by project ID
+app.get('/api/projects/:id/steps', authenticateUser, async (req, res) => {
+    try {
+        const projectId = req.params.id;
+        
+        // First verify the project exists and user has access to it
+        const projectQuery = `
+            SELECT p.*, pr.program_name, pr.program_code
+            FROM Projects p
+            JOIN Programs pr ON p.program_id = pr.program_id
+            WHERE p.project_id = @project_id
+        `;
+        
+        const pool = req.app.locals.db;
+        const projectRequest = pool.request();
+        projectRequest.input('project_id', sql.Int, projectId);
+        
+        const projectResult = await projectRequest.query(projectQuery);
+        
+        if (projectResult.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        
+        const project = projectResult.recordset[0];
+        
+        // Check program access for non-admin users
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Get project steps using the stored procedure
+        const stepsRequest = pool.request();
+        stepsRequest.input('project_id', sql.Int, projectId);
+        
+        const stepsResult = await stepsRequest.execute('usp_GetProjectStepsByProjectId');
+        
+        // Return the steps in the format expected by the frontend
+        // Even if no steps are found, return an empty array instead of 404
+        res.json({
+            data: stepsResult.recordset || [],
+            project_id: projectId,
+            project_name: project.project_name
+        });
+    } catch (error) {
+        console.error('Error getting project steps:', error);
+        res.status(500).json({ error: 'Failed to get project steps' });
+    }
+});
+
+// GET tracked items for a project
+app.get('/api/projects/:id/tracked-items', authenticateUser, async (req, res) => {
+    try {
+        const projectId = req.params.id;
+        
+        // First verify the project exists and user has access to it
+        const projectQuery = `
+            SELECT p.*, pr.program_name, pr.program_code
+            FROM Projects p
+            JOIN Programs pr ON p.program_id = pr.program_id
+            WHERE p.project_id = @project_id
+        `;
+        
+        const pool = req.app.locals.db;
+        const projectRequest = pool.request();
+        projectRequest.input('project_id', sql.Int, projectId);
+        
+        const projectResult = await projectRequest.query(projectQuery);
+        
+        if (projectResult.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        
+        const project = projectResult.recordset[0];
+        
+        // Check program access for non-admin users
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Get tracked items for the project with step progress information
+        const trackedItemsQuery = `
+            SELECT 
+                ti.item_id,
+                ti.project_id,
+                ti.item_identifier,
+                ti.current_overall_status,
+                ti.is_shipped,
+                ti.shipped_date,
+                ti.date_fully_completed,
+                ti.date_created,
+                ti.last_modified,
+                ti.created_by,
+                ti.notes,
+                -- Include step progress information
+                (
+                    SELECT 
+                        tsp.step_id as stepId,
+                        tsp.status,
+                        tsp.date_completed as completedDate,
+                        tsp.date_started as startedDate,
+                        tsp.notes as stepNotes,
+                        u.display_name as completed_by_user_name
+                    FROM TrackedItemStepProgress tsp
+                    LEFT JOIN Users u ON tsp.assigned_to = u.user_id
+                    WHERE tsp.item_id = ti.item_id
+                    FOR JSON PATH
+                ) as step_statuses_json
+            FROM TrackedItems ti
+            WHERE ti.project_id = @project_id
+            ORDER BY ti.date_created DESC
+        `;
+        
+        const trackedItemsRequest = pool.request();
+        trackedItemsRequest.input('project_id', sql.Int, projectId);
+        
+        const trackedItemsResult = await trackedItemsRequest.query(trackedItemsQuery);
+        
+        // Transform the data to parse the JSON step statuses
+        const transformedItems = trackedItemsResult.recordset.map(item => {
+            let step_statuses = [];
+            if (item.step_statuses_json) {
+                try {
+                    step_statuses = JSON.parse(item.step_statuses_json);
+                } catch (error) {
+                    console.error('Error parsing step statuses JSON:', error);
+                    step_statuses = [];
+                }
+            }
+            
+            // Remove the JSON field and add the parsed step_statuses
+            const { step_statuses_json, ...itemWithoutJson } = item;
+            return {
+                ...itemWithoutJson,
+                step_statuses: step_statuses
+            };
+        });
+        
+        // Return the tracked items in the format expected by the frontend
+        res.json({ data: transformedItems });
+    } catch (error) {
+        console.error('Error getting tracked items:', error);
+        res.status(500).json({ error: 'Failed to get tracked items' });
+    }
+});
+
+// GET project attributes by project ID
+app.get('/api/projects/:id/attributes', authenticateUser, async (req, res) => {
+    try {
+        const projectId = req.params.id;
+        
+        // First verify the project exists and user has access to it
+        const projectQuery = `
+            SELECT p.*, pr.program_name, pr.program_code
+            FROM Projects p
+            JOIN Programs pr ON p.program_id = pr.program_id
+            WHERE p.project_id = @project_id
+        `;
+        
+        const pool = req.app.locals.db;
+        const projectRequest = pool.request();
+        projectRequest.input('project_id', sql.Int, projectId);
+        
+        const projectResult = await projectRequest.query(projectQuery);
+        
+        if (projectResult.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        
+        const project = projectResult.recordset[0];
+        
+        // Check program access for non-admin users
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Get project attributes
+        const attributesQuery = `
+            SELECT 
+                attribute_definition_id,
+                project_id,
+                attribute_name,
+                attribute_type,
+                display_order,
+                is_required,
+                is_auto_generated,
+                default_value,
+                validation_rules
+            FROM AttributeDefinitions
+            WHERE project_id = @project_id
+            ORDER BY display_order, attribute_name
+        `;
+        
+        const attributesRequest = pool.request();
+        attributesRequest.input('project_id', sql.Int, projectId);
+        
+        const attributesResult = await attributesRequest.query(attributesQuery);
+        
+        // Return the attributes in the format expected by the frontend
+        res.json(attributesResult.recordset || []);
+    } catch (error) {
+        console.error('Error getting project attributes:', error);
+        res.status(500).json({ error: 'Failed to get project attributes' });
+    }
+});
+
+// POST (Create) a new attribute definition
+app.post('/api/attributes', authenticateUser, async (req, res) => {
+    try {
+        const {
+            project_id,
+            attribute_name,
+            attribute_type,
+            is_required,
+            is_auto_generated,
+            display_order,
+            default_value,
+            validation_rules
+        } = req.body;
+        
+        // Validate required fields
+        if (!project_id || !attribute_name || !attribute_type) {
+            return res.status(400).json({ error: 'Missing required fields: project_id, attribute_name, attribute_type' });
+        }
+        
+        // First verify the project exists and user has access to it
+        const projectQuery = `
+            SELECT p.*, pr.program_name, pr.program_code
+            FROM Projects p
+            JOIN Programs pr ON p.program_id = pr.program_id
+            WHERE p.project_id = @project_id
+        `;
+        
+        const pool = req.app.locals.db;
+        const projectRequest = pool.request();
+        projectRequest.input('project_id', sql.Int, project_id);
+        
+        const projectResult = await projectRequest.query(projectQuery);
+        
+        if (projectResult.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        
+        const project = projectResult.recordset[0];
+        
+        // Check program access for non-admin users
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Insert the new attribute definition
+        const insertQuery = `
+            INSERT INTO AttributeDefinitions (
+                project_id, 
+                attribute_name, 
+                attribute_type, 
+                display_order, 
+                is_required, 
+                is_auto_generated,
+                default_value, 
+                validation_rules
+            )
+            OUTPUT INSERTED.*
+            VALUES (@project_id, @attribute_name, @attribute_type, @display_order, @is_required, @is_auto_generated, @default_value, @validation_rules)
+        `;
+        
+        const insertRequest = pool.request();
+        insertRequest.input('project_id', sql.Int, project_id);
+        insertRequest.input('attribute_name', sql.NVarChar, attribute_name);
+        insertRequest.input('attribute_type', sql.NVarChar, attribute_type);
+        insertRequest.input('display_order', sql.Int, display_order || 1);
+        insertRequest.input('is_required', sql.Bit, is_required || false);
+        insertRequest.input('is_auto_generated', sql.Bit, is_auto_generated || false);
+        insertRequest.input('default_value', sql.NVarChar, default_value || null);
+        insertRequest.input('validation_rules', sql.NVarChar, validation_rules || null);
+        
+        const insertResult = await insertRequest.query(insertQuery);
+        
+        if (insertResult.recordset.length === 0) {
+            return res.status(500).json({ error: 'Failed to create attribute definition' });
+        }
+        
+        // Return the created attribute definition
+        res.status(201).json(insertResult.recordset[0]);
+    } catch (error) {
+        console.error('Error creating attribute definition:', error);
+        res.status(500).json({ error: 'Failed to create attribute definition' });
+    }
+});
+
 // POST (Create) a new project (with program access validation)
 app.post('/api/projects', authenticateUser, checkProgramAccess('Write'), async (req, res) => {
     // Ensure the project is created in the validated program
@@ -526,17 +846,19 @@ app.post('/api/projects', authenticateUser, checkProgramAccess('Write'), async (
 // PUT (Update) an existing project (with program access validation)
 app.put('/api/projects/:id', authenticateUser, async (req, res) => {
     try {
-        // First, verify user has access to this project's program
+        // First, verify user has access to this project's program and get existing project data
         const pool = req.app.locals.db;
         const checkResult = await pool.request()
             .input('project_id', sql.Int, req.params.id)
-            .query('SELECT program_id FROM Projects WHERE project_id = @project_id');
+            .query('SELECT program_id, created_by, project_name, project_description FROM Projects WHERE project_id = @project_id');
             
         if (checkResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
         }
         
-        const projectProgramId = checkResult.recordset[0].program_id;
+        const existingProject = checkResult.recordset[0];
+        const projectProgramId = existingProject.program_id;
+        const originalCreatedBy = existingProject.created_by;
         
         // Check program access
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(projectProgramId)) {
@@ -552,13 +874,410 @@ app.put('/api/projects/:id', authenticateUser, async (req, res) => {
         }
         
         req.body.project_id = parseInt(req.params.id, 10);
-        req.body.program_id = projectProgramId; // Ensure program_id doesn't change
+        req.body.program_id = parseInt(projectProgramId, 10); // Ensure program_id is integer
+        req.body.created_by = parseInt(originalCreatedBy, 10); // Ensure created_by is integer
+        
+        // Ensure required fields are present (fallback to existing values if not provided)
+        if (!req.body.project_name) {
+            req.body.project_name = existingProject.project_name;
+        }
+        if (!req.body.project_description) {
+            req.body.project_description = existingProject.project_description;
+        }
+        
+        console.log('=== PROJECT UPDATE DEBUG ===');
+        console.log('Request body before sending to stored procedure:', JSON.stringify(req.body, null, 2));
         
         const params = [{ name: 'ProjectJson', type: sql.NVarChar, value: JSON.stringify(req.body) }];
         await executeProcedure(res, 'usp_SaveProject', params);
     } catch (error) {
         console.error('Error updating project:', error);
         res.status(500).json({ error: 'Failed to update project' });
+    }
+});
+
+// DELETE project (with proper authorization and cascade handling)
+app.delete('/api/projects/:id', authenticateUser, async (req, res) => {
+    try {
+        const projectId = parseInt(req.params.id);
+        
+        // First, verify the project exists and check user permissions
+        const projectCheck = await new sql.Request(app.locals.db)
+            .input('project_id', sql.Int, projectId)
+            .query('SELECT program_id, project_name FROM Projects WHERE project_id = @project_id');
+        
+        if (projectCheck.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        
+        const project = projectCheck.recordset[0];
+        
+        // Check if user has write access to this program
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this program' });
+        }
+        
+        // Check if user has write permissions for this program
+        const programAccess = req.user.program_access.find(p => p.program_id === project.program_id);
+        if (!req.user.is_system_admin && (!programAccess || !['Write', 'Admin'].includes(programAccess.access_level))) {
+            return res.status(403).json({ error: 'Write access required to delete projects' });
+        }
+        
+        // Start a transaction to handle cascade delete properly
+        const transaction = new sql.Transaction(app.locals.db);
+        await transaction.begin();
+        
+        try {
+            // First, delete any pending orders associated with this project
+            console.log(`🗑️ Deleting pending orders for project ${projectId}...`);
+            const deletePendingOrdersResult = await new sql.Request(transaction)
+                .input('project_id', sql.Int, projectId)
+                .query('DELETE FROM PendingOrders WHERE project_id = @project_id');
+            
+            console.log(`🗑️ Deleted ${deletePendingOrdersResult.rowsAffected[0]} pending orders for project ${projectId}`);
+            
+            // Then delete the project itself
+            console.log(`🗑️ Deleting project ${projectId}...`);
+            const deleteProjectResult = await new sql.Request(transaction)
+                .input('project_id', sql.Int, projectId)
+                .query('DELETE FROM Projects WHERE project_id = @project_id');
+            
+            if (deleteProjectResult.rowsAffected[0] === 0) {
+                await transaction.rollback();
+                return res.status(404).json({ error: 'Project not found or already deleted' });
+            }
+            
+            // Commit the transaction
+            await transaction.commit();
+            
+            console.log(`✅ Project "${project.project_name}" (ID: ${projectId}) and related data deleted by user ${req.user.user_id}`);
+            
+            res.json({ 
+                success: true, 
+                message: `Project "${project.project_name}" and ${deletePendingOrdersResult.rowsAffected[0]} related pending orders have been successfully deleted`,
+                project_id: projectId,
+                deleted_pending_orders: deletePendingOrdersResult.rowsAffected[0]
+            });
+            
+        } catch (transactionError) {
+            await transaction.rollback();
+            throw transactionError;
+        }
+        
+    } catch (error) {
+        console.error('Error deleting project:', error);
+        res.status(500).json({ error: 'Failed to delete project' });
+    }
+});
+
+// =============================================================================
+// PROJECT STEPS ENDPOINTS
+// =============================================================================
+
+// POST (Create) a new project step (with program access validation)
+app.post('/api/steps', authenticateUser, async (req, res) => {
+    try {
+        console.log('Creating project step:', req.body);
+        
+        // Verify user has access to the project's program
+        const pool = req.app.locals.db;
+        const projectCheck = await pool.request()
+            .input('project_id', sql.Int, req.body.project_id)
+            .query('SELECT program_id FROM Projects WHERE project_id = @project_id');
+            
+        if (projectCheck.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        
+        const projectProgramId = projectCheck.recordset[0].program_id;
+        
+        // Check program access
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(projectProgramId)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Check write access level
+        if (!req.user.is_system_admin) {
+            const programAccess = req.user.program_access.find(p => p.program_id === projectProgramId);
+            if (!programAccess || programAccess.access_level === 'Read') {
+                return res.status(403).json({ error: 'Write access required to create project steps' });
+            }
+        }
+        
+        // Set program_id for the step
+        req.body.program_id = projectProgramId;
+        
+        console.log('Creating project step with data:', JSON.stringify(req.body, null, 2));
+        
+        const params = [{ name: 'StepJson', type: sql.NVarChar, value: JSON.stringify(req.body) }];
+        await executeProcedure(res, 'usp_SaveProjectStep', params);
+    } catch (error) {
+        console.error('Error creating project step:', error);
+        res.status(500).json({ error: 'Failed to create project step' });
+    }
+});
+
+// PUT (Update) an existing project step (with program access validation)
+app.put('/api/steps/:id', authenticateUser, async (req, res) => {
+    try {
+        console.log('Updating project step:', req.params.id, req.body);
+        
+        // Verify user has access to the project's program
+        const pool = req.app.locals.db;
+        const stepCheck = await pool.request()
+            .input('step_id', sql.Int, req.params.id)
+            .query(`
+                SELECT ps.project_id, p.program_id 
+                FROM ProjectSteps ps
+                JOIN Projects p ON ps.project_id = p.project_id
+                WHERE ps.step_id = @step_id
+            `);
+            
+        if (stepCheck.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project step not found' });
+        }
+        
+        const stepData = stepCheck.recordset[0];
+        const projectProgramId = stepData.program_id;
+        
+        // Check program access
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(projectProgramId)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Check write access level
+        if (!req.user.is_system_admin) {
+            const programAccess = req.user.program_access.find(p => p.program_id === projectProgramId);
+            if (!programAccess || programAccess.access_level === 'Read') {
+                return res.status(403).json({ error: 'Write access required to update project steps' });
+            }
+        }
+        
+        // Set the step_id, project_id, and program_id
+        req.body.step_id = parseInt(req.params.id, 10);
+        req.body.project_id = stepData.project_id;
+        req.body.program_id = projectProgramId;
+        
+        console.log('Updating project step with data:', JSON.stringify(req.body, null, 2));
+        
+        const params = [{ name: 'StepJson', type: sql.NVarChar, value: JSON.stringify(req.body) }];
+        await executeProcedure(res, 'usp_SaveProjectStep', params);
+    } catch (error) {
+        console.error('Error updating project step:', error);
+        res.status(500).json({ error: 'Failed to update project step' });
+    }
+});
+
+// DELETE project step (with proper authorization)
+app.delete('/api/steps/:id', authenticateUser, async (req, res) => {
+    try {
+        const stepId = parseInt(req.params.id);
+        
+        // First, verify the step exists and check user permissions
+        const stepCheck = await new sql.Request(app.locals.db)
+            .input('step_id', sql.Int, stepId)
+            .query(`
+                SELECT ps.step_name, ps.project_id, p.program_id 
+                FROM ProjectSteps ps
+                JOIN Projects p ON ps.project_id = p.project_id
+                WHERE ps.step_id = @step_id
+            `);
+        
+        if (stepCheck.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project step not found' });
+        }
+        
+        const step = stepCheck.recordset[0];
+        
+        // Check if user has write access to this program
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(step.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this program' });
+        }
+        
+        // Check if user has write permissions for this program
+        const programAccess = req.user.program_access.find(p => p.program_id === step.program_id);
+        if (!req.user.is_system_admin && (!programAccess || !['Write', 'Admin'].includes(programAccess.access_level))) {
+            return res.status(403).json({ error: 'Write access required to delete project steps' });
+        }
+        
+        // Delete the project step
+        const deleteStepResult = await new sql.Request(app.locals.db)
+            .input('step_id', sql.Int, stepId)
+            .query('DELETE FROM ProjectSteps WHERE step_id = @step_id');
+        
+        if (deleteStepResult.rowsAffected[0] === 0) {
+            return res.status(404).json({ error: 'Project step not found or already deleted' });
+        }
+        
+        console.log(`✅ Project step "${step.step_name}" (ID: ${stepId}) deleted by user ${req.user.user_id}`);
+        
+        res.json({ 
+            success: true, 
+            message: `Project step "${step.step_name}" has been successfully deleted`,
+            step_id: stepId
+        });
+        
+    } catch (error) {
+        console.error('Error deleting project step:', error);
+        res.status(500).json({ error: 'Failed to delete project step' });
+    }
+});
+
+// =============================================================================
+// STEP INVENTORY REQUIREMENTS ENDPOINTS
+// =============================================================================
+
+// POST (Create) a new step inventory requirement
+app.post('/api/inventory-requirements', authenticateUser, async (req, res) => {
+    try {
+        console.log('Creating step inventory requirement:', req.body);
+        
+        // Verify user has access to the step's project's program
+        const pool = req.app.locals.db;
+        const stepCheck = await pool.request()
+            .input('step_id', sql.Int, req.body.step_id)
+            .query(`
+                SELECT ps.project_id, p.program_id 
+                FROM ProjectSteps ps
+                JOIN Projects p ON ps.project_id = p.project_id
+                WHERE ps.step_id = @step_id
+            `);
+            
+        if (stepCheck.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project step not found' });
+        }
+        
+        const stepData = stepCheck.recordset[0];
+        const projectProgramId = stepData.program_id;
+        
+        // Check program access
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(projectProgramId)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Check write access level
+        if (!req.user.is_system_admin) {
+            const programAccess = req.user.program_access.find(p => p.program_id === projectProgramId);
+            if (!programAccess || programAccess.access_level === 'Read') {
+                return res.status(403).json({ error: 'Write access required to create inventory requirements' });
+            }
+        }
+        
+        console.log('Creating inventory requirement with data:', JSON.stringify(req.body, null, 2));
+        
+        const params = [{ name: 'RequirementJson', type: sql.NVarChar, value: JSON.stringify(req.body) }];
+        await executeProcedure(res, 'usp_SaveStepInventoryRequirement', params);
+    } catch (error) {
+        console.error('Error creating step inventory requirement:', error);
+        res.status(500).json({ error: 'Failed to create step inventory requirement' });
+    }
+});
+
+// PUT (Update) an existing step inventory requirement
+app.put('/api/inventory-requirements/:id', authenticateUser, async (req, res) => {
+    try {
+        console.log('Updating step inventory requirement:', req.params.id, req.body);
+        
+        // Verify user has access to the step's project's program
+        const pool = req.app.locals.db;
+        const reqCheck = await pool.request()
+            .input('requirement_id', sql.Int, req.params.id)
+            .query(`
+                SELECT sir.step_id, ps.project_id, p.program_id 
+                FROM StepInventoryRequirements sir
+                JOIN ProjectSteps ps ON sir.step_id = ps.step_id
+                JOIN Projects p ON ps.project_id = p.project_id
+                WHERE sir.requirement_id = @requirement_id
+            `);
+            
+        if (reqCheck.recordset.length === 0) {
+            return res.status(404).json({ error: 'Step inventory requirement not found' });
+        }
+        
+        const reqData = reqCheck.recordset[0];
+        const projectProgramId = reqData.program_id;
+        
+        // Check program access
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(projectProgramId)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+        
+        // Check write access level
+        if (!req.user.is_system_admin) {
+            const programAccess = req.user.program_access.find(p => p.program_id === projectProgramId);
+            if (!programAccess || programAccess.access_level === 'Read') {
+                return res.status(403).json({ error: 'Write access required to update inventory requirements' });
+            }
+        }
+        
+        // Set the requirement_id and step_id
+        req.body.requirement_id = parseInt(req.params.id, 10);
+        req.body.step_id = reqData.step_id;
+        
+        console.log('Updating inventory requirement with data:', JSON.stringify(req.body, null, 2));
+        
+        const params = [{ name: 'RequirementJson', type: sql.NVarChar, value: JSON.stringify(req.body) }];
+        await executeProcedure(res, 'usp_SaveStepInventoryRequirement', params);
+    } catch (error) {
+        console.error('Error updating step inventory requirement:', error);
+        res.status(500).json({ error: 'Failed to update step inventory requirement' });
+    }
+});
+
+// DELETE step inventory requirement
+app.delete('/api/inventory-requirements/:id', authenticateUser, async (req, res) => {
+    try {
+        const requirementId = parseInt(req.params.id);
+        
+        // First, verify the requirement exists and check user permissions
+        const reqCheck = await new sql.Request(app.locals.db)
+            .input('requirement_id', sql.Int, requirementId)
+            .query(`
+                SELECT sir.requirement_id, sir.step_id, ps.project_id, p.program_id, ii.item_name
+                FROM StepInventoryRequirements sir
+                JOIN ProjectSteps ps ON sir.step_id = ps.step_id
+                JOIN Projects p ON ps.project_id = p.project_id
+                JOIN InventoryItems ii ON sir.inventory_item_id = ii.inventory_item_id
+                WHERE sir.requirement_id = @requirement_id
+            `);
+        
+        if (reqCheck.recordset.length === 0) {
+            return res.status(404).json({ error: 'Step inventory requirement not found' });
+        }
+        
+        const requirement = reqCheck.recordset[0];
+        
+        // Check if user has write access to this program
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(requirement.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this program' });
+        }
+        
+        // Check if user has write permissions for this program
+        const programAccess = req.user.program_access.find(p => p.program_id === requirement.program_id);
+        if (!req.user.is_system_admin && (!programAccess || !['Write', 'Admin'].includes(programAccess.access_level))) {
+            return res.status(403).json({ error: 'Write access required to delete inventory requirements' });
+        }
+        
+        // Delete the requirement
+        const deleteResult = await new sql.Request(app.locals.db)
+            .input('requirement_id', sql.Int, requirementId)
+            .query('DELETE FROM StepInventoryRequirements WHERE requirement_id = @requirement_id');
+        
+        if (deleteResult.rowsAffected[0] === 0) {
+            return res.status(404).json({ error: 'Step inventory requirement not found or already deleted' });
+        }
+        
+        console.log(`✅ Step inventory requirement for "${requirement.item_name}" (ID: ${requirementId}) deleted by user ${req.user.user_id}`);
+        
+        res.json({ 
+            success: true, 
+            message: `Step inventory requirement for "${requirement.item_name}" has been successfully deleted`,
+            requirement_id: requirementId
+        });
+        
+    } catch (error) {
+        console.error('Error deleting step inventory requirement:', error);
+        res.status(500).json({ error: 'Failed to delete step inventory requirement' });
     }
 });
 
@@ -773,6 +1492,10 @@ app.put('/api/notifications/:id/read', authenticateUser, async (req, res) => {
 // =============================================================================
 
 // Health check endpoints
+// -----------------------------------------------------------------------------
+// DEBUG CONTROL & HEALTH MONITORING ENDPOINTS
+// -----------------------------------------------------------------------------
+
 app.get('/api/health', (req, res) => {
     res.status(200).json({
         status: 'OK',
@@ -1310,6 +2033,259 @@ app.put('/api/orders/:orderId/received', authenticateUser, async (req, res) => {
         res.status(500).json({ error: 'Failed to mark order as received' });
     }
 });
+
+// POST tracked item - Create new tracked item
+app.post('/api/tracked-items', authenticateUser, async (req, res) => {
+    try {
+        const { 
+            project_id, 
+            item_identifier, 
+            current_overall_status = 'Pending',
+            notes = '',
+            initial_attributes = []
+        } = req.body;
+
+        // Validate required fields
+        if (!project_id || !item_identifier) {
+            return res.status(400).json({ error: 'project_id and item_identifier are required' });
+        }
+
+        // First verify the project exists and user has access to it
+        const projectQuery = `
+            SELECT p.*, pr.program_name, pr.program_code
+            FROM Projects p
+            JOIN Programs pr ON p.program_id = pr.program_id
+            WHERE p.project_id = @project_id
+        `;
+        
+        const pool = req.app.locals.db;
+        const projectRequest = pool.request();
+        projectRequest.input('project_id', sql.Int, project_id);
+        
+        const projectResult = await projectRequest.query(projectQuery);
+        
+        if (projectResult.recordset.length === 0) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        
+        const project = projectResult.recordset[0];
+        
+        // Check program access for non-admin users
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this project' });
+        }
+
+        // Create the tracked item
+        const createItemQuery = `
+            INSERT INTO TrackedItems (
+                project_id, 
+                item_identifier, 
+                current_overall_status, 
+                notes, 
+                created_by, 
+                date_created, 
+                last_modified
+            )
+            OUTPUT INSERTED.item_id, INSERTED.project_id, INSERTED.item_identifier, 
+                   INSERTED.current_overall_status, INSERTED.notes, INSERTED.date_created,
+                   INSERTED.last_modified, INSERTED.created_by, INSERTED.is_shipped,
+                   INSERTED.shipped_date, INSERTED.date_fully_completed
+            VALUES (
+                @project_id,
+                @item_identifier,
+                @current_overall_status,
+                @notes,
+                @created_by,
+                GETDATE(),
+                GETDATE()
+            )
+        `;
+
+        const createItemRequest = pool.request();
+        createItemRequest.input('project_id', sql.Int, project_id);
+        createItemRequest.input('item_identifier', sql.NVarChar(100), item_identifier);
+        createItemRequest.input('current_overall_status', sql.NVarChar(50), current_overall_status);
+        createItemRequest.input('notes', sql.NVarChar(sql.MAX), notes);
+        createItemRequest.input('created_by', sql.Int, req.user.user_id);
+
+        const createItemResult = await createItemRequest.query(createItemQuery);
+        
+        if (createItemResult.recordset.length === 0) {
+            return res.status(500).json({ error: 'Failed to create tracked item' });
+        }
+
+        const createdItem = createItemResult.recordset[0];
+
+        // Create initial attributes if provided
+        if (initial_attributes && initial_attributes.length > 0) {
+            for (const attr of initial_attributes) {
+                const attrQuery = `
+                    INSERT INTO ItemAttributeValues (
+                        item_id, 
+                        attribute_definition_id, 
+                        attribute_value,
+                        date_set,
+                        set_by
+                    )
+                    VALUES (
+                        @item_id,
+                        @attribute_definition_id,
+                        @attribute_value,
+                        GETDATE(),
+                        @set_by
+                    )
+                `;
+
+                const attrRequest = pool.request();
+                attrRequest.input('item_id', sql.Int, createdItem.item_id);
+                attrRequest.input('attribute_definition_id', sql.Int, attr.attribute_definition_id);
+                attrRequest.input('attribute_value', sql.NVarChar(sql.MAX), attr.attribute_value);
+                attrRequest.input('set_by', sql.Int, req.user.user_id);
+
+                await attrRequest.query(attrQuery);
+            }
+        }
+
+        // Transform the response to match the frontend expected format
+        const response = {
+            item_id: createdItem.item_id.toString(),
+            project_id: createdItem.project_id.toString(),
+            item_identifier: createdItem.item_identifier,
+            current_overall_status: createdItem.current_overall_status,
+            notes: createdItem.notes || '',
+            date_created: createdItem.date_created,
+            last_modified: createdItem.last_modified,
+            created_by: createdItem.created_by,
+            is_shipped: createdItem.is_shipped,
+            shipped_date: createdItem.shipped_date,
+            date_fully_completed: createdItem.date_fully_completed
+        };
+
+        res.status(201).json(response);
+    } catch (error) {
+        console.error('Error creating tracked item:', error);
+        res.status(500).json({ error: 'Failed to create tracked item' });
+    }
+});
+
+// POST batch update tracked item step progress
+app.post('/api/tracked-items/batch-step-progress', authenticateUser, async (req, res) => {
+    try {
+        const { itemIds, stepId, status, completed_by_user_name } = req.body;
+        
+        // Validate required fields
+        if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
+            return res.status(400).json({ error: 'itemIds array is required' });
+        }
+        
+        if (!stepId) {
+            return res.status(400).json({ error: 'stepId is required' });
+        }
+        
+        if (!status) {
+            return res.status(400).json({ error: 'status is required' });
+        }
+        
+        const pool = req.app.locals.db;
+        
+        // Process each item
+        const results = [];
+        for (const itemId of itemIds) {
+            console.log(`Processing item ${itemId} for step ${stepId} with status ${status}`);
+            
+            // Check if progress record exists
+            const checkQuery = `
+                SELECT * FROM TrackedItemStepProgress 
+                WHERE item_id = @item_id AND step_id = @step_id
+            `;
+            
+            const checkRequest = pool.request();
+            checkRequest.input('item_id', sql.Int, parseInt(itemId));
+            checkRequest.input('step_id', sql.Int, parseInt(stepId));
+            
+            const checkResult = await checkRequest.query(checkQuery);
+            
+            if (checkResult.recordset.length > 0) {
+                // Update existing record
+                const updateQuery = `
+                    UPDATE TrackedItemStepProgress 
+                    SET 
+                        status = @status,
+                        date_completed = CASE 
+                            WHEN @status = 'Complete' THEN GETDATE() 
+                            ELSE date_completed 
+                        END,
+                        notes = COALESCE(notes, '') + CASE 
+                            WHEN @completed_by_user_name IS NOT NULL 
+                            THEN CHAR(13) + CHAR(10) + 'Completed by: ' + @completed_by_user_name + ' on ' + CONVERT(varchar, GETDATE(), 120)
+                            ELSE ''
+                        END
+                    WHERE item_id = @item_id AND step_id = @step_id
+                `;
+                
+                const updateRequest = pool.request();
+                updateRequest.input('item_id', sql.Int, parseInt(itemId));
+                updateRequest.input('step_id', sql.Int, parseInt(stepId));
+                updateRequest.input('status', sql.NVarChar(50), status);
+                updateRequest.input('completed_by_user_name', sql.NVarChar(255), completed_by_user_name || null);
+                
+                await updateRequest.query(updateQuery);
+                results.push({ itemId, action: 'updated' });
+            } else {
+                // Create new record
+                const insertQuery = `
+                    INSERT INTO TrackedItemStepProgress (
+                        item_id, 
+                        step_id, 
+                        status, 
+                        date_completed,
+                        notes
+                    ) VALUES (
+                        @item_id,
+                        @step_id,
+                        @status,
+                        CASE WHEN @status = 'Complete' THEN GETDATE() ELSE NULL END,
+                        CASE 
+                            WHEN @completed_by_user_name IS NOT NULL 
+                            THEN 'Completed by: ' + @completed_by_user_name + ' on ' + CONVERT(varchar, GETDATE(), 120)
+                            ELSE ''
+                        END
+                    )
+                `;
+                
+                const insertRequest = pool.request();
+                insertRequest.input('item_id', sql.Int, parseInt(itemId));
+                insertRequest.input('step_id', sql.Int, parseInt(stepId));
+                insertRequest.input('status', sql.NVarChar(50), status);
+                insertRequest.input('completed_by_user_name', sql.NVarChar(255), completed_by_user_name || null);
+                
+                await insertRequest.query(insertQuery);
+                results.push({ itemId, action: 'created' });
+            }
+        }
+        
+        console.log(`Batch update completed for ${results.length} items`);
+        res.json({ 
+            success: true, 
+            message: `Updated ${results.length} items`, 
+            results 
+        });
+        
+    } catch (error) {
+        console.error('Error in batch update tracked item step progress:', error);
+        res.status(500).json({ error: 'Failed to update tracked item step progress' });
+    }
+});
+
+// =============================================================================
+// PROCUREMENT MANAGEMENT ROUTES
+// =============================================================================
+
+// Mount procurement routes with database connection
+app.use('/api', (req, res, next) => {
+    req.db = app.locals.db;
+    next();
+}, procurementRoutes);
 
 // Start server
 app.listen(PORT, () => {

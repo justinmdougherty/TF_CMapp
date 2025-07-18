@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
   Typography,
   Box,
@@ -20,6 +20,11 @@ import {
   Divider,
   Tabs,
   Tab,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -33,14 +38,16 @@ import {
   MoreVert as MoreVertIcon,
   TrendingUp as StatsIcon,
   Assessment as AnalyticsIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import PageContainer from 'src/components/container/PageContainer';
 import Breadcrumb from 'src/layouts/full/shared/breadcrumb/Breadcrumb';
 import { Link } from 'react-router';
-import { ProjectStatus } from 'src/types/Project';
+import { ProjectStatus, Project } from 'src/types/Project';
 import {
   useGetProjects,
   useUpdateProject,
+  useDeleteProject,
   useGetProjectSteps,
 } from 'src/hooks/api/useProjectHooks';
 import { useTrackedItems } from 'src/hooks/api/useTrackedItemHooks';
@@ -104,10 +111,20 @@ const BCrumb = [{ to: '/', title: 'Home' }, { title: 'Project Management' }];
 const ProjectManagementDashboard = () => {
   const { currentUser, hasRole } = useRBAC();
   const { data: projects, isLoading, isError, error, refetch } = useGetProjects();
+
+  // Debug logging
+  console.log('🏗️ ProjectManagementDashboard: Component rendered');
+  console.log('🏗️ ProjectManagementDashboard: projects data:', projects);
+  console.log('🏗️ ProjectManagementDashboard: isLoading:', isLoading);
+  console.log('🏗️ ProjectManagementDashboard: isError:', isError);
+  console.log('🏗️ ProjectManagementDashboard: error:', error);
+
   const [addProjectModalOpen, setAddProjectModalOpen] = useState(false);
   const [statusMenuAnchorEl, setStatusMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0); // Add tab state for project filtering
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Task management hooks
   const { data: currentTasks = [] } = useTasks();
@@ -116,6 +133,7 @@ const ProjectManagementDashboard = () => {
 
   // Update project mutation
   const updateProjectMutation = useUpdateProject();
+  const deleteProjectMutation = useDeleteProject();
 
   const handleAddProjectClick = () => {
     setAddProjectModalOpen(true);
@@ -152,10 +170,37 @@ const ProjectManagementDashboard = () => {
     setSelectedProjectId(null);
   };
 
+  const handleDeleteProject = (projectId: string) => {
+    const project = projects?.find((p: Project) => p.project_id.toString() === projectId);
+    if (project) {
+      setProjectToDelete({
+        id: projectId,
+        name: project.project_name,
+      });
+      setDeleteConfirmOpen(true);
+      handleStatusMenuClose();
+    }
+  };
+
+  const handleConfirmDelete = () => {
+    if (projectToDelete) {
+      deleteProjectMutation.mutate(projectToDelete.id);
+      setDeleteConfirmOpen(false);
+      setProjectToDelete(null);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmOpen(false);
+    setProjectToDelete(null);
+  };
+
   const handleStatusChange = async (newStatus: ProjectStatus) => {
     if (!selectedProjectId) return;
 
-    const project = sortedProjects?.find((p) => p.project_id.toString() === selectedProjectId);
+    const project = sortedProjects?.find(
+      (p: Project) => p.project_id.toString() === selectedProjectId,
+    );
     if (!project) return;
 
     try {
@@ -218,7 +263,7 @@ const ProjectManagementDashboard = () => {
   };
   // Sort projects by status priority
   const sortedProjects = projects
-    ? [...projects].sort((a, b) => {
+    ? [...projects].sort((a: Project, b: Project) => {
         const aPriority = statusPriority[a.status] || 999;
         const bPriority = statusPriority[b.status] || 999;
 
@@ -237,11 +282,13 @@ const ProjectManagementDashboard = () => {
 
     switch (activeTab) {
       case 0: // Active & Planning
-        return sortedProjects.filter((p) => ['Active', 'Planning', 'On Hold'].includes(p.status));
+        return sortedProjects.filter((p: Project) =>
+          ['Active', 'Planning', 'On Hold'].includes(p.status),
+        );
       case 1: // Completed
-        return sortedProjects.filter((p) => p.status === 'Completed');
+        return sortedProjects.filter((p: Project) => p.status === 'Completed');
       case 2: // Inactive & Archived
-        return sortedProjects.filter((p) => ['Inactive', 'Archived'].includes(p.status));
+        return sortedProjects.filter((p: Project) => ['Inactive', 'Archived'].includes(p.status));
       default:
         return sortedProjects;
     }
@@ -251,9 +298,9 @@ const ProjectManagementDashboard = () => {
 
   // Calculate overall statistics
   const totalProjects = projects?.length || 0;
-  const activeProjects = projects?.filter((p) => p.status === 'Active').length || 0;
-  const planningProjects = projects?.filter((p) => p.status === 'Planning').length || 0;
-  const completedProjects = projects?.filter((p) => p.status === 'Completed').length || 0;
+  const activeProjects = projects?.filter((p: Project) => p.status === 'Active').length || 0;
+  const planningProjects = projects?.filter((p: Project) => p.status === 'Planning').length || 0;
+  const completedProjects = projects?.filter((p: Project) => p.status === 'Completed').length || 0;
 
   return (
     <PageContainer title="Project Management" description="Overview and management of all projects">
@@ -528,7 +575,7 @@ const ProjectManagementDashboard = () => {
       >
         {statusOptions.map((status) => {
           const selectedProject = sortedProjects?.find(
-            (p) => p.project_id.toString() === selectedProjectId,
+            (p: Project) => p.project_id.toString() === selectedProjectId,
           );
           return (
             <MenuItem
@@ -541,6 +588,16 @@ const ProjectManagementDashboard = () => {
             </MenuItem>
           );
         })}
+        <Divider />
+        <MenuItem
+          onClick={() => selectedProjectId && handleDeleteProject(selectedProjectId)}
+          sx={{ color: 'error.main' }}
+        >
+          <ListItemIcon>
+            <DeleteIcon fontSize="small" sx={{ color: 'error.main' }} />
+          </ListItemIcon>
+          <ListItemText primary="Delete Project" />
+        </MenuItem>
       </Menu>
 
       <AddProjectModal
@@ -548,6 +605,53 @@ const ProjectManagementDashboard = () => {
         onClose={handleAddProjectClose}
         onSuccess={handleProjectCreated}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={handleCancelDelete}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle id="delete-dialog-title" sx={{ color: 'error.main' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <DeleteIcon />
+            Delete Project
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete the project <strong>"{projectToDelete?.name}"</strong>?
+            <br />
+            <br />
+            This action cannot be undone and will permanently remove:
+          </DialogContentText>
+          <Box component="ul" sx={{ mt: 2, mb: 2, pl: 2 }}>
+            <li>All project data and settings</li>
+            <li>Associated tasks and progress tracking</li>
+            <li>Production steps and status history</li>
+            <li>Any pending orders tied to this project</li>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleCancelDelete} variant="outlined" color="inherit">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDelete}
+            variant="contained"
+            color="error"
+            disabled={deleteProjectMutation.isPending}
+            startIcon={
+              deleteProjectMutation.isPending ? <CircularProgress size={20} /> : <DeleteIcon />
+            }
+          >
+            {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </PageContainer>
   );
 };

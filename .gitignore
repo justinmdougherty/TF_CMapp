@@ -124,8 +124,8 @@ api/uploads/
 api/temp/
 
 # Frontend specific
-TF_CMapp/dist/
-TF_CMapp/build/
+H10CM/dist/
+H10CM/build/
 H10CM/dist/
 H10CM/build/
 

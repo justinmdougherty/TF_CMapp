@@ -20,8 +20,7 @@ export interface UnitStepStatus {
 
 export interface ProductionUnit {
   item_id: number | string; // API returns numbers, but we need to handle both
-  unit_serial_number?: string | null; // API can return null
-  pcb_serial_number?: string | null; // API can return null
+  item_identifier?: string; // The primary identifier for the item
   step_statuses?: UnitStepStatus[];
   is_shipped?: boolean;
   shipped_date?: string | null;
@@ -32,7 +31,7 @@ export interface ProductionUnit {
   notes?: string;
   project_id?: number;
   attributes?: any[]; // For dynamic attributes
-  [key: string]: any; // For any other dynamic fields
+  [key: string]: any; // For any other dynamic fields from custom attributes
 }
 
 export interface TableColumnConfig {

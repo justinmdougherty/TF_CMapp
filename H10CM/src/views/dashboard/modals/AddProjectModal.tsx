@@ -49,6 +49,7 @@ interface LocalAttributeDefinition {
   attribute_name: string;
   attribute_type: 'text' | 'number' | 'date' | 'select';
   is_required: boolean;
+  is_auto_generated: boolean; // New field for auto-generation
   display_order: number;
   select_options?: string[];
 }
@@ -134,6 +135,7 @@ const AddProjectModal: React.FC<AddProjectModalProps> = ({ open, onClose, onSucc
       attribute_name: '',
       attribute_type: 'text',
       is_required: false,
+      is_auto_generated: false,
       display_order: attributes.length + 1,
     };
     setAttributes([...attributes, newAttribute]);
@@ -242,6 +244,7 @@ const AddProjectModal: React.FC<AddProjectModalProps> = ({ open, onClose, onSucc
             attribute_name: attribute.attribute_name,
             attribute_type: attribute.attribute_type,
             is_required: attribute.is_required,
+            is_auto_generated: attribute.is_auto_generated,
             display_order: attribute.display_order,
           });
         } catch (attrError) {
@@ -254,7 +257,14 @@ const AddProjectModal: React.FC<AddProjectModalProps> = ({ open, onClose, onSucc
       }
 
       // 3. Create project steps and their inventory requirements
-      console.log('Creating project steps:', projectSteps);
+      console.log('🔧 DEBUG: About to create project steps...');
+      console.log('🔧 DEBUG: projectSteps array:', projectSteps);
+      console.log('🔧 DEBUG: projectSteps length:', projectSteps.length);
+
+      if (projectSteps.length === 0) {
+        console.log('⚠️ WARNING: No project steps defined - skipping step creation');
+      }
+
       for (let i = 0; i < projectSteps.length; i++) {
         const step = projectSteps[i];
         console.log(`Creating step ${i + 1}:`, step);
@@ -397,9 +407,10 @@ const AddProjectModal: React.FC<AddProjectModalProps> = ({ open, onClose, onSucc
                       <TableCell>Name</TableCell>
                       <TableCell>Type</TableCell>
                       <TableCell>Required</TableCell>
+                      <TableCell>Auto-Generated</TableCell>
                       <TableCell>Actions</TableCell>
                     </TableRow>
-                  </TableHead>
+                  </TableHead>{' '}
                   <TableBody>
                     {attributes.map((attr, index) => (
                       <TableRow key={index}>
@@ -436,6 +447,20 @@ const AddProjectModal: React.FC<AddProjectModalProps> = ({ open, onClose, onSucc
                                 onChange={(e) =>
                                   updateAttribute(index, 'is_required', e.target.checked)
                                 }
+                              />
+                            }
+                            label=""
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                checked={attr.is_auto_generated}
+                                onChange={(e) =>
+                                  updateAttribute(index, 'is_auto_generated', e.target.checked)
+                                }
+                                disabled={attr.attribute_type === 'date'} // Disable for date types
                               />
                             }
                             label=""

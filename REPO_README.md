@@ -11,7 +11,7 @@ H10CM/
 │   ├── index.js                 # Main API server
 │   ├── package.json             # API dependencies
 │   └── tests/                   # API test files
-├── TF_CMapp/                    # Frontend React Application
+├── H10CM/                    # Frontend React Application
 │   ├── src/                     # Source code
 │   ├── public/                  # Static assets
 │   ├── package.json             # Frontend dependencies
@@ -50,7 +50,7 @@ H10CM/
 
 4. **Install and run the frontend**
    ```bash
-   cd TF_CMapp
+   cd H10CM
    npm install
    npm run dev
    # Frontend will be available at http://localhost:5173
@@ -136,7 +136,7 @@ npm test
 
 ### Frontend Testing
 ```bash
-cd TF_CMapp
+cd H10CM
 npm test
 ```
 
@@ -145,7 +145,7 @@ npm test
 ### Production Build
 ```bash
 # Build frontend
-cd TF_CMapp
+cd H10CM
 npm run build
 
 # Start API in production mode
@@ -154,7 +154,7 @@ npm start
 ```
 
 ### Environment Variables
-Create `.env` files in both `api/` and `TF_CMapp/` directories with appropriate configuration.
+Create `.env` files in both `api/` and `H10CM/` directories with appropriate configuration.
 
 ## 📝 Contributing
 
@@ -171,7 +171,7 @@ This project is proprietary and confidential.
 ## 🔗 Links
 
 - [API Documentation](./api/README.md)
-- [Frontend Documentation](./TF_CMapp/README.md)
+- [Frontend Documentation](./H10CM/README.md)
 - [Database Schema](./h10cm.sql)
 
 ---

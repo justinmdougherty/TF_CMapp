@@ -1,6 +1,6 @@
-# TF_CMapp Application Structure Breakdown
+# H10CM Application Structure Breakdown
 
-This document provides an overview of the `TF_CMapp` React frontend application's structure, highlighting key components and their dependencies.
+This document provides an overview of the `H10CM` React frontend application's structure, highlighting key components and their dependencies.
 
 ## 1. Core Application Flow
 

@@ -14,22 +14,55 @@ import { ProductionUnit } from '../../types/Production';
 import { notifications, projectNotifications } from '../../services/notificationService';
 
 export const useProjects = () => {
-  return useQuery<Project[], Error>({
+  const result = useQuery<Project[], Error>({
     queryKey: ['projects'],
-    queryFn: fetchProjects,
+    queryFn: async () => {
+      console.log('🔍 useProjects: fetchProjects called');
+      const data = await fetchProjects();
+      console.log('🔍 useProjects: fetchProjects returned:', data);
+      return data;
+    },
     refetchOnWindowFocus: true,
     staleTime: 0, // Consider data stale immediately
   });
+  
+  console.log('🔍 useProjects: hook result:', {
+    data: result.data,
+    isLoading: result.isLoading,
+    isError: result.isError,
+    error: result.error
+  });
+  
+  return result;
 };
 
 export const useGetProjects = useProjects;
 
 export const useGetProjectById = (projectId: string | undefined) => {
-  return useQuery<Project | null, Error>({
+  const result = useQuery<Project | null, Error>({
     queryKey: ['project', projectId],
-    queryFn: () => fetchProjectById(projectId),
+    queryFn: () => {
+      console.log('🔍 useGetProjectById: Fetching project with ID:', projectId);
+      return fetchProjectById(projectId);
+    },
     enabled: !!projectId, // Only run the query if projectId is available
   });
+  
+  console.log('🔍 useGetProjectById: Hook result:', {
+    projectId,
+    data: result.data,
+    isLoading: result.isLoading,
+    isError: result.isError,
+    error: result.error ? {
+      message: result.error.message,
+      stack: result.error.stack,
+      name: result.error.name,
+    } : null,
+    status: result.status,
+    fetchStatus: result.fetchStatus,
+  });
+  
+  return result;
 };
 
 export const useCreateProject = () => {
@@ -37,14 +70,20 @@ export const useCreateProject = () => {
   return useMutation<Project, Error, Omit<Project, 'project_id' | 'date_created'>>({
     mutationFn: createProject,
     onSuccess: (data) => {
-      // Invalidate and refetch to ensure the UI updates immediately
+      console.log('🎉 useCreateProject: Project created successfully:', data);
+      console.log('🔄 useCreateProject: Invalidating and refetching projects cache...');
+      
+      // Both invalidate and refetch to ensure the UI updates immediately
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.refetchQueries({ queryKey: ['projects'] });
+      
+      console.log('🔄 useCreateProject: Cache invalidation and refetch triggered');
       
       // Show success notification
       projectNotifications.projectCreated(data.project_name);
     },
     onError: (error) => {
-      console.error('Error creating project:', error);
+      console.error('❌ useCreateProject: Error creating project:', error);
       projectNotifications.apiError('create project', error.message);
     },
   });

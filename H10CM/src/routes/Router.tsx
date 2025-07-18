@@ -16,6 +16,9 @@ const ProjectManagementDashboard = Loadable(
   lazy(() => import('../views/project-management/ProjectManagementDashboard')),
 );
 const ProjectDetailPage = Loadable(lazy(() => import('../views/project-detail/ProjectDetailPage')));
+const TestProjectDetailPage = Loadable(
+  lazy(() => import('../views/project-detail/TestProjectDetailPage')),
+);
 const Error = Loadable(lazy(() => import('../views/authentication/Error')));
 
 // Import new placeholder pages

@@ -16,6 +16,13 @@ const apiClient = axios.create({
   baseURL: '/api',
 });
 
+// Add authentication header for development
+apiClient.interceptors.request.use((config) => {
+  // Add the development fallback header that the backend expects
+  config.headers['x-arr-clientcert'] = 'development-fallback';
+  return config;
+});
+
 // --- Project API Functions ---
 export const fetchProjects = async (): Promise<Project[]> => {
   const { data } = await apiClient.get('/projects');
@@ -27,21 +34,66 @@ export const fetchProjects = async (): Promise<Project[]> => {
 };
 
 export const fetchProjectById = async (projectId: string | undefined): Promise<Project | null> => {
-  if (!projectId) return null;
-  const { data } = await apiClient.get(`/projects/${projectId}`);
-  // APIs for a single item might return an array with one item
-  if (Array.isArray(data) && data.length > 0) {
-    const projectData = data[0];
-    // Derive project_type based on project_name
-    let derivedProjectType = 'OTHER';
-    if (projectData.project_name === 'PR') {
-      derivedProjectType = 'PR';
-    } else if (projectData.project_name === 'Assembly Line A') {
-      derivedProjectType = 'ASSEMBLY';
-    }
-    return { ...projectData, project_type: derivedProjectType };
+  console.log('🔍 fetchProjectById: Called with projectId:', projectId);
+  
+  if (!projectId) {
+    console.log('🔍 fetchProjectById: No projectId provided, returning null');
+    return null;
   }
-  return data;
+  
+  try {
+    console.log('🔍 fetchProjectById: Making API call to /projects/' + projectId);
+    const { data } = await apiClient.get(`/projects/${projectId}`);
+    console.log('🔍 fetchProjectById: API response received:', data);
+    
+    // APIs for a single item might return an array with one item
+    if (Array.isArray(data) && data.length > 0) {
+      const projectData = data[0];
+      console.log('🔍 fetchProjectById: Processing array response, first item:', projectData);
+      
+      // Derive project_type based on project_name
+      let derivedProjectType = 'OTHER';
+      if (projectData.project_name === 'PR') {
+        derivedProjectType = 'PR';
+      } else if (projectData.project_name === 'Assembly Line A') {
+        derivedProjectType = 'ASSEMBLY';
+      }
+      
+      const result = { ...projectData, project_type: derivedProjectType };
+      console.log('🔍 fetchProjectById: Returning processed project:', result);
+      return result;
+    }
+    
+    console.log('🔍 fetchProjectById: Returning direct response:', data);
+    return data;
+  } catch (error) {
+    console.error('🔍 fetchProjectById: API call failed:', error);
+    
+    // Enhanced error logging for debugging
+    if (error instanceof Error) {
+      console.error('🔍 fetchProjectById: Error message:', error.message);
+      console.error('🔍 fetchProjectById: Error stack:', error.stack);
+    }
+    
+    // Axios error handling
+    if (error && typeof error === 'object' && 'response' in error) {
+      const axiosError = error as any;
+      console.error('🔍 fetchProjectById: Axios error details:', {
+        status: axiosError.response?.status,
+        statusText: axiosError.response?.statusText,
+        data: axiosError.response?.data,
+        headers: axiosError.response?.headers,
+        config: {
+          url: axiosError.config?.url,
+          method: axiosError.config?.method,
+          headers: axiosError.config?.headers,
+          baseURL: axiosError.config?.baseURL,
+        }
+      });
+    }
+    
+    throw error;
+  }
 };
 
 export const createProject = async (project: Omit<Project, 'project_id' | 'date_created'>): Promise<Project> => {
@@ -96,7 +148,7 @@ export const fetchTrackedItemDetails = async (itemId: string): Promise<TrackedIt
   return data;
 };
 
-export const createTrackedItem = async (item: Omit<TrackedItem, 'item_id' | 'date_created'>): Promise<TrackedItem> => {
+export const createTrackedItem = async (item: Omit<TrackedItem, 'item_id' | 'date_created' | 'last_modified'>): Promise<TrackedItem> => {
   const { data } = await apiClient.post('/tracked-items', item);
   return data;
 };

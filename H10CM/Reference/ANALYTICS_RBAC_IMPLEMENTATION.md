@@ -1,7 +1,7 @@
 # Analytics Dashboard RBAC Implementation Summary
 
 ## Overview
-Successfully implemented Role-Based Access Control (RBAC) for the Analytics Dashboard in the TF_CMapp production management system. The Analytics Dashboard is now accessible only to users with Admin or Project Manager roles.
+Successfully implemented Role-Based Access Control (RBAC) for the Analytics Dashboard in the H10CM production management system. The Analytics Dashboard is now accessible only to users with Admin or Project Manager roles.
 
 ## Implementation Details
 

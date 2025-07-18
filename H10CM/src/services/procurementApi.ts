@@ -21,39 +21,44 @@ const apiClient = axios.create({
 });
 
 // --- Sponsor Management ---
-export const fetchSponsors = async (): Promise<Sponsor[]> => {
-  const { data } = await apiClient.get('/sponsors');
+export const fetchSponsors = async (programId?: number): Promise<Sponsor[]> => {
+  const params = programId ? { program_id: programId } : {};
+  const { data } = await apiClient.get('/procurement/sponsors', { params });
   return data;
 };
 
 export const createSponsor = async (sponsor: Omit<Sponsor, 'sponsor_id' | 'created_date'>): Promise<Sponsor> => {
-  const { data } = await apiClient.post('/sponsors', sponsor);
+  const { data } = await apiClient.post('/procurement/sponsors', sponsor);
   return data;
 };
 
 export const updateSponsor = async (sponsor: Sponsor): Promise<Sponsor> => {
-  const { data } = await apiClient.put(`/sponsors/${sponsor.sponsor_id}`, sponsor);
+  const { data } = await apiClient.put(`/procurement/sponsors/${sponsor.sponsor_id}`, sponsor);
   return data;
 };
 
 // --- Sponsor Fund Management ---
-export const fetchSponsorFunds = async (): Promise<SponsorFund[]> => {
-  const { data } = await apiClient.get('/sponsor-funds');
+export const fetchSponsorFunds = async (sponsorId?: number, programId?: number): Promise<SponsorFund[]> => {
+  const params: any = {};
+  if (sponsorId) params.sponsor_id = sponsorId;
+  if (programId) params.program_id = programId;
+  const { data } = await apiClient.get('/procurement/sponsor-funds', { params });
   return data;
 };
 
 export const createSponsorFund = async (fund: Omit<SponsorFund, 'fund_id' | 'created_date' | 'sponsor_name'>): Promise<SponsorFund> => {
-  const { data } = await apiClient.post('/sponsor-funds', fund);
+  const { data } = await apiClient.post('/procurement/sponsor-funds', fund);
   return data;
 };
 
 export const updateSponsorFund = async (fund: SponsorFund): Promise<SponsorFund> => {
-  const { data } = await apiClient.put(`/sponsor-funds/${fund.fund_id}`, fund);
+  const { data } = await apiClient.put(`/procurement/sponsor-funds/${fund.fund_id}`, fund);
   return data;
 };
 
-export const getFundUsageSummary = async (): Promise<FundUsageSummary[]> => {
-  const { data } = await apiClient.get('/sponsor-funds/usage-summary');
+export const getFundUsageSummary = async (programId?: number): Promise<FundUsageSummary[]> => {
+  const params = programId ? { program_id: programId } : {};
+  const { data } = await apiClient.get('/procurement/fund-usage-summary', { params });
   return data;
 };
 
