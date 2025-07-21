@@ -70,21 +70,10 @@ const authenticateUser = async (req, res, next) => {
         // Extract certificate subject (simplified for this example)
         const certSubject = extractCertificateSubject(clientCert);
         
-        // Look up user in database
+        // Use stored procedure for secure user lookup
         const userResult = await pool.request()
-            .input('certificate_subject', sql.NVarChar, certSubject)
-            .query(`
-                SELECT u.user_id, u.user_name, u.display_name, u.is_system_admin,
-                       JSON_QUERY((
-                           SELECT pa.program_id, pa.access_level, p.program_name, p.program_code
-                           FROM ProgramAccess pa 
-                           JOIN Programs p ON pa.program_id = p.program_id
-                           WHERE pa.user_id = u.user_id AND pa.is_active = 1
-                           FOR JSON PATH
-                       )) as program_access
-                FROM Users u
-                WHERE u.certificate_subject = @certificate_subject AND u.is_active = 1
-            `);
+            .input('CertificateSubject', sql.NVarChar, certSubject)
+            .execute('usp_GetUserWithProgramAccess');
 
         if (userResult.recordset.length === 0) {
             return res.status(401).json({ error: 'User not found or not authorized' });
@@ -332,7 +321,7 @@ app.get('/api/programs', async (req, res) => {
 
         // Check if any programs exist first
         const programCountResult = await pool.request()
-            .query('SELECT COUNT(*) as program_count FROM Programs WHERE is_active = 1');
+            .execute('usp_GetSystemStatistics');
         
         const hasPrograms = programCountResult.recordset[0].program_count > 0;
         
@@ -341,46 +330,28 @@ app.get('/api/programs', async (req, res) => {
             return res.json([]);
         }
 
-        // Programs exist, check authentication
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-            // No auth provided and it's not an initial setup, require authentication
+        // Programs exist, check for certificate authentication
+        const clientCert = req.headers['x-arr-clientcert'];
+        if (!clientCert) {
+            // No certificate provided, require authentication
             return res.status(401).json({ error: 'Authentication required' });
         }
 
-        // Try authentication, but continue if it fails (for initial setup)
-        try {
-            await new Promise((resolve, reject) => {
-                authenticateUser(req, res, (error) => {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve();
-                    }
-                });
-            });
-        } catch (authError) {
-            // Authentication failed, but allow for setup purposes
-            return res.status(401).json({ error: 'Authentication failed' });
-        }
-
-        // Authentication successful, proceed with filtered results
-        let query = `
-            SELECT program_id, program_name, program_code, program_description, 
-                   is_active, date_created, program_manager
-            FROM Programs 
-            WHERE is_active = 1
-        `;
-        
-        // Non-admin users only see their accessible programs
-        if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
-            query += ` AND program_id IN (${req.user.accessible_programs.join(',')})`;
-        }
-        
-        query += ` ORDER BY program_name`;
-        
-        const result = await pool.request().query(query);
-        res.json(result.recordset);
+        // Use authenticateUser middleware to authenticate
+        authenticateUser(req, res, async () => {
+            try {
+                // Authentication successful, proceed with stored procedure
+                const result = await pool.request()
+                    .input('RequestingUserId', sql.Int, req.user ? req.user.user_id : null)
+                    .input('IsSystemAdmin', sql.Bit, req.user ? req.user.is_system_admin : false)
+                    .execute('usp_GetAllPrograms');
+                    
+                res.json(result.recordset);
+            } catch (error) {
+                console.error('Error getting programs:', error);
+                res.status(500).json({ error: 'Failed to get programs' });
+            }
+        });
     } catch (error) {
         console.error('Error getting programs:', error);
         res.status(500).json({ error: 'Failed to get programs' });
@@ -397,7 +368,7 @@ app.post('/api/programs', async (req, res) => {
 
         // Check if any programs exist
         const programCountResult = await pool.request()
-            .query('SELECT COUNT(*) as program_count FROM Programs WHERE is_active = 1');
+            .execute('usp_GetSystemStatistics');
         
         const hasPrograms = programCountResult.recordset[0].program_count > 0;
         
@@ -445,7 +416,7 @@ app.get('/api/users', async (req, res) => {
 
         // Check if any system admins exist
         const adminCheckResult = await pool.request()
-            .query('SELECT COUNT(*) as admin_count FROM Users WHERE is_system_admin = 1 AND is_active = 1');
+            .execute('usp_GetSystemStatistics');
         
         const hasAdmins = adminCheckResult.recordset[0].admin_count > 0;
         
@@ -474,30 +445,30 @@ app.get('/api/users', async (req, res) => {
 // GET projects (filtered by user's program access)
 app.get('/api/projects', authenticateUser, async (req, res) => {
     try {
-        let query = `
-            SELECT p.project_id, p.program_id, p.project_name, p.project_description, 
-                   p.status, p.priority, pr.program_name, pr.program_code,
-                   pm.display_name as project_manager_name,
-                   p.date_created, p.last_modified, p.project_start_date, p.project_end_date
-            FROM Projects p
-            JOIN Programs pr ON p.program_id = pr.program_id
-            LEFT JOIN Users pm ON p.project_manager_id = pm.user_id
-            WHERE pr.is_active = 1
-        `;
-        
-        // Filter by program access for non-admin users
-        if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
-            query += ` AND p.program_id IN (${req.user.accessible_programs.join(',')})`;
+        const pool = req.app.locals.db;
+        if (!pool) {
+            return res.status(500).json({ error: 'Database not connected' });
         }
-        
-        // Filter by specific program if requested
+
+        // Determine program filter for non-admin users
+        let programId = null;
         if (req.query.program_id) {
-            query += ` AND p.program_id = ${parseInt(req.query.program_id)}`;
+            programId = parseInt(req.query.program_id);
+        }
+
+        const result = await pool.request()
+            .input('RequestingUserId', sql.Int, req.user.user_id)
+            .input('IsSystemAdmin', sql.Bit, req.user.is_system_admin)
+            .input('ProgramFilter', sql.Int, programId)
+            .execute('usp_GetProjects');
+            
+        // Filter by accessible programs for non-admin users if no specific program requested
+        let projects = result.recordset;
+        if (!req.user.is_system_admin && !req.query.program_id && req.user.accessible_programs.length > 0) {
+            projects = projects.filter(project => req.user.accessible_programs.includes(project.program_id));
         }
         
-        query += ` ORDER BY p.project_name`;
-        
-        await executeQuery(req, res, query);
+        res.json(projects);
     } catch (error) {
         console.error('Error in /api/projects:', error);
         res.status(500).json({ error: 'Failed to get projects.' });
@@ -849,8 +820,8 @@ app.put('/api/projects/:id', authenticateUser, async (req, res) => {
         // First, verify user has access to this project's program and get existing project data
         const pool = req.app.locals.db;
         const checkResult = await pool.request()
-            .input('project_id', sql.Int, req.params.id)
-            .query('SELECT program_id, created_by, project_name, project_description FROM Projects WHERE project_id = @project_id');
+            .input('ProjectId', sql.Int, req.params.id)
+            .execute('usp_GetProjectForValidation');
             
         if (checkResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
@@ -903,8 +874,8 @@ app.delete('/api/projects/:id', authenticateUser, async (req, res) => {
         
         // First, verify the project exists and check user permissions
         const projectCheck = await new sql.Request(app.locals.db)
-            .input('project_id', sql.Int, projectId)
-            .query('SELECT program_id, project_name FROM Projects WHERE project_id = @project_id');
+            .input('ProjectId', sql.Int, projectId)
+            .execute('usp_GetProjectForValidation');
         
         if (projectCheck.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
@@ -982,8 +953,8 @@ app.post('/api/steps', authenticateUser, async (req, res) => {
         // Verify user has access to the project's program
         const pool = req.app.locals.db;
         const projectCheck = await pool.request()
-            .input('project_id', sql.Int, req.body.project_id)
-            .query('SELECT program_id FROM Projects WHERE project_id = @project_id');
+            .input('ProjectId', sql.Int, req.body.project_id)
+            .execute('usp_GetProjectForValidation');
             
         if (projectCheck.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
@@ -1288,43 +1259,45 @@ app.delete('/api/inventory-requirements/:id', authenticateUser, async (req, res)
 // GET tasks (filtered by user's program access)
 app.get('/api/tasks', authenticateUser, async (req, res) => {
     try {
-        let query = `
-            SELECT t.task_id, t.program_id, t.task_title, t.priority, t.status, 
-                   t.completion_percentage, t.due_date, t.date_created,
-                   assigned_user.display_name AS assigned_to_name,
-                   assigner.display_name AS assigned_by_name,
-                   p.project_name, pr.program_name
-            FROM Tasks t
-            LEFT JOIN Users assigned_user ON t.assigned_to = assigned_user.user_id
-            LEFT JOIN Users assigner ON t.assigned_by = assigner.user_id
-            LEFT JOIN Projects p ON t.project_id = p.project_id
-            LEFT JOIN Programs pr ON t.program_id = pr.program_id
-            WHERE 1=1
-        `;
-        
-        // Filter by program access for non-admin users
-        if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
-            query += ` AND t.program_id IN (${req.user.accessible_programs.join(',')})`;
+        const pool = req.app.locals.db;
+        if (!pool) {
+            return res.status(500).json({ error: 'Database not connected' });
         }
-        
-        // Filter by assigned user if requested
-        if (req.query.assigned_to_me === 'true') {
-            query += ` AND t.assigned_to = ${req.user.user_id}`;
-        }
-        
-        // Filter by program
+
+        // Determine program filter for non-admin users
+        let programId = null;
         if (req.query.program_id) {
-            query += ` AND t.program_id = ${parseInt(req.query.program_id)}`;
+            programId = parseInt(req.query.program_id);
+        } else if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
+            // For non-admin users, if no specific program requested, get all their accessible tasks
+            programId = null; // We'll handle multiple programs in the procedure
         }
-        
-        // Filter by project
+
+        // Determine user filter
+        let userId = null;
+        if (req.query.assigned_to_me === 'true') {
+            userId = req.user.user_id;
+        }
+
+        // Determine project filter
+        let projectId = null;
         if (req.query.project_id) {
-            query += ` AND t.project_id = ${parseInt(req.query.project_id)}`;
+            projectId = parseInt(req.query.project_id);
         }
-        
-        query += ` ORDER BY t.due_date, t.priority DESC`;
-        
-        await executeQuery(req, res, query);
+
+        const result = await pool.request()
+            .input('ProgramId', sql.Int, programId)
+            .input('UserId', sql.Int, userId)
+            .input('ProjectId', sql.Int, projectId)
+            .input('IsSystemAdmin', sql.Bit, req.user.is_system_admin)
+            .execute('usp_GetTasks');
+            
+        // Filter by accessible programs for non-admin users if no specific program requested
+        let tasks = result.recordset;
+        if (!req.user.is_system_admin && !req.query.program_id && req.user.accessible_programs.length > 0) {
+            tasks = tasks.filter(task => req.user.accessible_programs.includes(task.program_id));
+        }
+        res.json(tasks);
     } catch (error) {
         console.error('Error getting tasks:', error);
         res.status(500).json({ error: 'Failed to get tasks' });
@@ -1347,29 +1320,34 @@ app.post('/api/tasks', authenticateUser, checkProgramAccess('Write'), async (req
 // GET inventory items (filtered by user's program access)
 app.get('/api/inventory-items', authenticateUser, async (req, res) => {
     try {
-        let query = `
-            SELECT ii.inventory_item_id, ii.item_name, ii.part_number, 
-                   ii.description, ii.category, ii.unit_of_measure, ii.current_stock_level,
-                   ii.reorder_point, ii.cost_per_unit, ii.location, ii.is_active,
-                   ii.supplier_info, ii.max_stock_level, ii.date_created, ii.last_modified,
-                   ii.program_id, u.display_name as created_by_name
-            FROM InventoryItems ii
-            LEFT JOIN Users u ON ii.created_by = u.user_id
-            WHERE ii.is_active = 1
-        `;
+        const pool = req.app.locals.db;
+        if (!pool) {
+            return res.status(500).json({ error: 'Database not connected' });
+        }
+
+        // Determine program filter for non-admin users
+        let programId = null;
+        if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
+            programId = req.user.accessible_programs[0]; // Default to first accessible program
+        }
+
+        const result = await pool.request()
+            .input('ProgramId', sql.Int, programId)
+            .input('IsSystemAdmin', sql.Bit, req.user.is_system_admin)
+            .execute('usp_GetInventoryItems');
+            
+        let items = result.recordset;
         
         // Add any additional filters
         if (req.query.category) {
-            query += ` AND ii.category = '${req.query.category}'`;
+            items = items.filter(item => item.category === req.query.category);
         }
         
         if (req.query.low_stock) {
-            query += ` AND ii.current_stock_level <= ISNULL(ii.reorder_point, 0)`;
+            items = items.filter(item => item.current_stock_level <= (item.reorder_point || 0));
         }
         
-        query += ` ORDER BY ii.item_name`;
-        
-        await executeQuery(req, res, query);
+        res.json(items);
     } catch (error) {
         console.error('Error getting inventory items:', error);
         res.status(500).json({ error: 'Failed to get inventory items' });
@@ -1438,25 +1416,22 @@ app.post('/api/inventory-items', authenticateUser, async (req, res) => {
 // GET user notifications
 app.get('/api/notifications', authenticateUser, async (req, res) => {
     try {
-        const query = `
-            SELECT notification_id, category, title, message, priority, is_read, 
-                   is_actionable, action_url, action_text, date_created
-            FROM Notifications
-            WHERE user_id = @user_id 
-            AND (expires_at IS NULL OR expires_at > GETDATE())
-            ORDER BY date_created DESC
-        `;
-        
-        const params = [{ name: 'user_id', type: sql.Int, value: req.user.user_id }];
-        
         const pool = req.app.locals.db;
-        const request = pool.request();
-        params.forEach(param => {
-            request.input(param.name, param.type, param.value);
-        });
+        if (!pool) {
+            return res.status(500).json({ error: 'Database not connected' });
+        }
+
+        const result = await pool.request()
+            .input('UserId', sql.Int, req.user.user_id)
+            .input('IsSystemAdmin', sql.Bit, req.user.is_system_admin)
+            .execute('usp_GetNotifications');
+            
+        // Filter out expired notifications
+        const notifications = result.recordset.filter(notification => 
+            !notification.expires_at || notification.expires_at > new Date()
+        );
         
-        const result = await request.query(query);
-        res.json(result.recordset);
+        res.json(notifications);
     } catch (error) {
         console.error('Error getting notifications:', error);
         res.status(500).json({ error: 'Failed to get notifications' });
@@ -1485,6 +1460,73 @@ app.put('/api/notifications/:id/read', authenticateUser, async (req, res) => {
         console.error('Error marking notification as read:', error);
         res.status(500).json({ error: 'Failed to update notification' });
     }
+});
+
+// =============================================================================
+// VIEWS API ENDPOINTS (DATABASE VIEWS)
+// =============================================================================
+
+// Helper function to execute views with authentication and program filtering
+const executeView = async (req, res, viewName) => {
+    try {
+        const pool = req.app.locals.db;
+        if (!pool) {
+            return res.status(500).json({ error: 'Database not connected' });
+        }
+
+        // Build query to select from view
+        let query = `SELECT * FROM [dbo].[${viewName}]`;
+        const params = [];
+
+        // Add program filtering for non-admin users if the view has program context
+        const programFilterableViews = ['v_Projects_Summary', 'v_Tasks_Summary', 'v_User_Access_Summary'];
+        if (!req.user.is_system_admin && programFilterableViews.includes(viewName)) {
+            if (req.user.accessible_programs.length > 0) {
+                query += ` WHERE program_id IN (${req.user.accessible_programs.join(',')})`;
+            } else {
+                // User has no program access, return empty result
+                return res.json([]);
+            }
+        }
+
+        query += ` ORDER BY 1`; // Order by first column
+
+        const request = pool.request();
+        params.forEach(param => {
+            request.input(param.name, param.type, param.value);
+        });
+
+        const result = await request.query(query);
+        res.json(result.recordset);
+    } catch (error) {
+        console.error(`Error executing view ${viewName}:`, error);
+        res.status(500).json({ error: `Failed to execute view: ${viewName}` });
+    }
+};
+
+// GET Projects Summary View
+app.get('/api/views/projects-summary', authenticateUser, (req, res) => {
+    executeView(req, res, 'v_Projects_Summary');
+});
+
+// GET User Access Summary View  
+app.get('/api/views/user-access-summary', authenticateUser, (req, res) => {
+    executeView(req, res, 'v_User_Access_Summary');
+});
+
+// GET Tasks Summary View
+app.get('/api/views/tasks-summary', authenticateUser, (req, res) => {
+    executeView(req, res, 'v_Tasks_Summary');
+});
+
+// GET Inventory Stock Status View
+app.get('/api/views/inventory-stock-status', authenticateUser, (req, res) => {
+    executeView(req, res, 'v_InventoryItems_StockStatus');
+});
+
+// GET Notifications Summary View
+app.get('/api/views/notifications-summary', authenticateUser, (req, res) => {
+    executeView(req, res, 'v_Notifications_Summary');
 });
 
 // =============================================================================
@@ -1545,7 +1587,7 @@ app.post('/api/admin/create-user', async (req, res) => {
 
         // For initial setup, check if any system admin exists
         const adminCheckResult = await pool.request()
-            .query('SELECT COUNT(*) as admin_count FROM Users WHERE is_system_admin = 1 AND is_active = 1');
+            .execute('usp_GetSystemStatistics');
         
         const hasAdmins = adminCheckResult.recordset[0].admin_count > 0;
         
@@ -1617,22 +1659,12 @@ const createUserLogic = async (req, res, pool) => {
 // Helper function for users logic
 const getUsersLogic = async (req, res, pool) => {
     try {
-        const query = `
-            SELECT u.user_id, u.user_name, u.display_name, u.email, u.is_active, u.is_system_admin,
-                   u.last_login, u.date_created,
-                   JSON_QUERY((
-                       SELECT pa.program_id, pa.access_level, p.program_name
-                       FROM ProgramAccess pa 
-                       JOIN Programs p ON pa.program_id = p.program_id
-                       WHERE pa.user_id = u.user_id AND pa.is_active = 1
-                       FOR JSON PATH
-                   )) as program_access
-            FROM Users u
-            WHERE u.is_active = 1
-            ORDER BY u.display_name
-        `;
+        // Use stored procedure for secure user retrieval
+        const result = await pool.request()
+            .input('RequestingUserId', sql.Int, req.user ? req.user.user_id : null)
+            .input('IsSystemAdmin', sql.Bit, req.user ? req.user.is_system_admin : false)
+            .execute('usp_GetAllUsers');
         
-        const result = await pool.request().query(query);
         res.json(result.recordset);
     } catch (error) {
         console.error('Error getting users:', error);
@@ -1642,43 +1674,30 @@ const getUsersLogic = async (req, res, pool) => {
 
 // Helper function for program creation logic
 const createProgramLogic = async (req, res, pool) => {
-    const { program_name, program_code, program_description } = req.body;
+    const { program_name, program_code, program_description, program_manager } = req.body;
     
     try {
-        const params = [
-            { name: 'ProgramName', type: sql.NVarChar, value: program_name },
-            { name: 'ProgramCode', type: sql.NVarChar, value: program_code },
-            { name: 'ProgramDescription', type: sql.NVarChar, value: program_description },
-            { name: 'CreatedBy', type: sql.NVarChar, value: req.user ? req.user.user_name : 'System' }
-        ];
-        
-        const request = pool.request();
-        params.forEach(param => {
-            request.input(param.name, param.type, param.value);
-        });
-
-        const result = await request.execute('usp_AddNewTenant');
+        // Use stored procedure for secure program creation
+        const result = await pool.request()
+            .input('ProgramName', sql.NVarChar, program_name)
+            .input('ProgramCode', sql.NVarChar, program_code)
+            .input('ProgramDescription', sql.NVarChar, program_description || null)
+            .input('ProgramManager', sql.Int, program_manager || null)
+            .input('CreatedBy', sql.NVarChar, req.user ? req.user.user_name : 'System')
+            .input('CreatedByUserId', sql.Int, req.user ? req.user.user_id : null)
+            .execute('usp_CreateProgram');
         
         res.setHeader('Content-Type', 'application/json');
 
-        if (result.recordset && result.recordset.length > 0 && result.recordset[0][Object.keys(result.recordset[0])[0]]) {
-            const jsonResultString = result.recordset[0][Object.keys(result.recordset[0])[0]];
-            const data = JSON.parse(jsonResultString);
-            
-            if (data.error) {
-                return res.status(400).send(JSON.stringify(data, null, 2));
-            }
-            if (data.SuccessMessage || data.WarningMessage) {
-                return res.status(200).send(JSON.stringify(data, null, 2));
-            }
-            
+        if (result.recordset && result.recordset.length > 0) {
+            const data = result.recordset[0];
             res.status(200).send(JSON.stringify(data, null, 2));
         } else {
             res.status(200).send(JSON.stringify({ message: 'Program created successfully' }, null, 2));
         }
     } catch (error) {
         console.error('Error creating program:', error);
-        res.status(500).json({ error: 'Failed to create program' });
+        res.status(500).json({ error: 'Failed to create program', details: error.message });
     }
 };
 
@@ -1968,19 +1987,32 @@ app.post('/api/orders/create-from-cart', authenticateUser, async (req, res) => {
 // GET pending orders for current user
 app.get('/api/orders/pending', authenticateUser, async (req, res) => {
     try {
-        const { project_id } = req.query;
+        const { program_id } = req.query;
+        
+        // If user is not system admin, use their accessible programs
+        let targetProgramId = null;
+        if (program_id) {
+            // Validate user has access to requested program
+            if (!req.user.is_system_admin && !req.user.accessible_programs.includes(parseInt(program_id))) {
+                return res.status(403).json({ error: 'Access denied to this program' });
+            }
+            targetProgramId = parseInt(program_id);
+        } else if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
+            // For non-admin users, default to their first accessible program
+            targetProgramId = req.user.accessible_programs[0];
+        }
+        // If user is system admin and no program_id specified, get all orders (targetProgramId = null)
         
         const request = new sql.Request(app.locals.db);
         const result = await request
-            .input('user_id', sql.Int, req.user.user_id)
-            .input('project_id', sql.Int, project_id || null)
+            .input('program_id', sql.Int, targetProgramId)
             .execute('usp_GetPendingOrders');
 
         res.json({
             success: true,
             orders: result.recordset,
             user_id: req.user.user_id,
-            project_id: project_id
+            program_id: targetProgramId
         });
     } catch (error) {
         console.error('Error getting pending orders:', error);
@@ -2278,6 +2310,322 @@ app.post('/api/tracked-items/batch-step-progress', authenticateUser, async (req,
 });
 
 // =============================================================================
+// USER MANAGEMENT & TEAM APIs
+// =============================================================================
+
+// Get all users with team member information
+app.get('/api/users/team-members', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const program_id = req.query.program_id || null;
+        
+        // Use stored procedure for secure team member retrieval
+        const result = await pool.request()
+            .input('ProgramId', sql.Int, program_id)
+            .input('RequestingUserId', sql.Int, req.user.user_id)
+            .execute('usp_GetTeamMembers');
+        
+        // Transform data to match expected frontend format
+        const teamMembers = result.recordset.map(member => ({
+            user_id: member.user_id,
+            username: member.user_name,
+            full_name: member.display_name,
+            role: member.access_level === 'Admin' ? 'Administrator' : 
+                  member.access_level === 'Write' ? 'Project Manager' : 'Technician',
+            status: 'Active',
+            availability_status: 'Available',
+            skills: ['General Production'], // TODO: Implement skills system
+            current_task_count: 0, // TODO: Get from Tasks table
+            productivity_score: 95.0, // TODO: Calculate from metrics
+            last_active: member.date_granted,
+            program_name: member.program_name,
+            access_level: member.access_level
+        }));
+        
+        res.json(teamMembers);
+    } catch (error) {
+        console.error('Error fetching team members:', error);
+        res.status(500).json({ error: 'Failed to fetch team members' });
+    }
+});
+
+// Get user access requests
+app.get('/api/users/access-requests', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        
+        // Only system admins can view access requests
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'Access denied: Admin role required' });
+        }
+        
+        // Use stored procedure for secure access request retrieval
+        const result = await pool.request()
+            .input('RequestingUserId', sql.Int, req.user.user_id)
+            .input('IsSystemAdmin', sql.Bit, req.user.is_system_admin)
+            .execute('usp_GetUserAccessRequests');
+        
+        res.json(result.recordset);
+    } catch (error) {
+        console.error('Error fetching access requests:', error);
+        res.status(500).json({ error: 'Failed to fetch access requests' });
+    }
+});
+
+// Approve user access request
+app.post('/api/users/access-requests/:userId/approve', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const { userId } = req.params;
+        const { role, notes } = req.body;
+        
+        // Only system admins can approve access requests
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'Access denied: Admin role required' });
+        }
+        
+        // Update the access request status
+        await pool.request()
+            .input('user_id', sql.NVarChar, userId)
+            .input('role', sql.NVarChar, role)
+            .input('notes', sql.NVarChar, notes || '')
+            .input('approved_by', sql.Int, req.user.user_id)
+            .query(`
+                UPDATE UserAccessRequests 
+                SET status = 'approved',
+                    approved_role = @role,
+                    admin_notes = @notes,
+                    approved_by = @approved_by,
+                    approved_date = GETDATE()
+                WHERE user_id = @user_id AND status = 'pending'
+            `);
+        
+        res.json({ success: true, message: 'User access approved' });
+    } catch (error) {
+        console.error('Error approving user access:', error);
+        res.status(500).json({ error: 'Failed to approve user access' });
+    }
+});
+
+// Deny user access request
+app.post('/api/users/access-requests/:userId/deny', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const { userId } = req.params;
+        const { notes } = req.body;
+        
+        // Only system admins can deny access requests
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'Access denied: Admin role required' });
+        }
+        
+        // Update the access request status
+        await pool.request()
+            .input('user_id', sql.NVarChar, userId)
+            .input('notes', sql.NVarChar, notes || '')
+            .input('denied_by', sql.Int, req.user.user_id)
+            .query(`
+                UPDATE UserAccessRequests 
+                SET status = 'denied',
+                    admin_notes = @notes,
+                    denied_by = @denied_by,
+                    denied_date = GETDATE()
+                WHERE user_id = @user_id AND status = 'pending'
+            `);
+        
+        res.json({ success: true, message: 'User access denied' });
+    } catch (error) {
+        console.error('Error denying user access:', error);
+        res.status(500).json({ error: 'Failed to deny user access' });
+    }
+});
+
+// =============================================================================
+// ENHANCED TASK MANAGEMENT APIs
+// =============================================================================
+
+// Get task statistics
+app.get('/api/tasks/statistics', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const programId = req.query.program_id || req.user.accessible_programs[0];
+        
+        const result = await pool.request()
+            .input('ProgramId', sql.Int, programId)
+            .execute('usp_GetTaskStatistics');
+        
+        const stats = result.recordset[0];
+        
+        // Calculate completion rate
+        const completionRate = stats.total_tasks > 0 ? 
+            Math.round((stats.completed_tasks / stats.total_tasks) * 100) : 0;
+            
+        res.json({
+            totalTasks: stats.total_tasks || 0,
+            completedTasks: stats.completed_tasks || 0,
+            inProgressTasks: stats.in_progress_tasks || 0,
+            pendingTasks: stats.pending_tasks || 0,
+            highPriorityTasks: stats.high_priority_tasks || 0,
+            overdueTasks: stats.overdue_tasks || 0,
+            completionRate,
+            avgCompletionTime: stats.avg_completion_time || 0,
+            activeTeamMembers: stats.active_team_members || 0
+        });
+        
+    } catch (error) {
+        console.error('Error fetching task statistics:', error);
+        res.status(500).json({ error: 'Failed to fetch task statistics' });
+    }
+});
+
+// Get user task summary
+app.get('/api/tasks/user-summary/:userId', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const { userId } = req.params;
+        const programId = req.query.program_id || req.user.accessible_programs[0];
+        
+        const result = await pool.request()
+            .input('UserId', sql.Int, parseInt(userId))
+            .input('ProgramId', sql.Int, programId)
+            .execute('usp_GetUserTaskSummary');
+        
+        const summary = result.recordset[0];
+        
+        if (!summary) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Calculate completion rate
+        const completionRate = summary.total_assigned_tasks > 0 ? 
+            Math.round((summary.completed_tasks / summary.total_assigned_tasks) * 100) : 0;
+            
+        res.json({
+            userId: parseInt(userId),
+            username: summary.username,
+            fullName: summary.full_name,
+            totalAssignedTasks: summary.total_assigned_tasks || 0,
+            completedTasks: summary.completed_tasks || 0,
+            inProgressTasks: summary.in_progress_tasks || 0,
+            pendingTasks: summary.pending_tasks || 0,
+            highPriorityTasks: summary.high_priority_tasks || 0,
+            overdueTasks: summary.overdue_tasks || 0,
+            completionRate,
+            avgCompletionTime: summary.avg_completion_time || 0
+        });
+        
+    } catch (error) {
+        console.error('Error fetching user task summary:', error);
+        res.status(500).json({ error: 'Failed to fetch user task summary' });
+    }
+});
+
+// Update task
+app.put('/api/tasks/:id', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const { id } = req.params;
+        const taskData = req.body;
+        
+        const result = await pool.request()
+            .input('task_id', sql.Int, parseInt(id))
+            .input('task_name', sql.NVarChar, taskData.title)
+            .input('description', sql.NVarChar, taskData.description || '')
+            .input('status', sql.NVarChar, taskData.status)
+            .input('priority', sql.NVarChar, taskData.priority || 'medium')
+            .input('assigned_to', sql.Int, taskData.assigned_to ? parseInt(taskData.assigned_to) : null)
+            .input('due_date', sql.DateTime, taskData.due_date ? new Date(taskData.due_date) : null)
+            .input('estimated_hours', sql.Decimal, taskData.estimated_hours || null)
+            .input('updated_by', sql.Int, req.user.user_id)
+            .query(`
+                UPDATE Tasks 
+                SET task_name = @task_name,
+                    description = @description,
+                    status = @status,
+                    priority = @priority,
+                    assigned_to = @assigned_to,
+                    due_date = @due_date,
+                    estimated_hours = @estimated_hours,
+                    last_modified = GETDATE(),
+                    updated_by = @updated_by
+                WHERE task_id = @task_id
+                
+                SELECT * FROM Tasks WHERE task_id = @task_id
+            `);
+        
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+        
+        res.json(result.recordset[0]);
+        
+    } catch (error) {
+        console.error('Error updating task:', error);
+        res.status(500).json({ error: 'Failed to update task' });
+    }
+});
+
+// Delete task
+app.delete('/api/tasks/:id', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const { id } = req.params;
+        
+        const result = await pool.request()
+            .input('task_id', sql.Int, parseInt(id))
+            .query(`
+                DELETE FROM Tasks WHERE task_id = @task_id
+            `);
+        
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+        
+        res.json({ success: true, message: 'Task deleted successfully' });
+        
+    } catch (error) {
+        console.error('Error deleting task:', error);
+        res.status(500).json({ error: 'Failed to delete task' });
+    }
+});
+
+// Get tasks by project
+app.get('/api/tasks/project/:projectId', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const { projectId } = req.params;
+        
+        const result = await pool.request()
+            .input('ProjectId', sql.Int, parseInt(projectId))
+            .execute('usp_GetTasksByProject');
+        
+        res.json(result.recordset);
+        
+    } catch (error) {
+        console.error('Error fetching tasks by project:', error);
+        res.status(500).json({ error: 'Failed to fetch tasks by project' });
+    }
+});
+
+// Get tasks by user
+app.get('/api/tasks/user/:userId', authenticateUser, async (req, res) => {
+    try {
+        const pool = req.app.locals.db;
+        const { userId } = req.params;
+        
+        const result = await pool.request()
+            .input('UserId', sql.Int, parseInt(userId))
+            .execute('usp_GetTasksByUser');
+        
+        res.json(result.recordset);
+        
+    } catch (error) {
+        console.error('Error fetching tasks by user:', error);
+        res.status(500).json({ error: 'Failed to fetch tasks by user' });
+    }
+});
+
+// =============================================================================
 // PROCUREMENT MANAGEMENT ROUTES
 // =============================================================================
 
@@ -2287,12 +2635,17 @@ app.use('/api', (req, res, next) => {
     next();
 }, procurementRoutes);
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`H10CM Multi-Tenant API server running on port ${PORT}`);
-    console.log(`Database: H10CM (Multi-Tenant Architecture)`);
-    console.log(`Features: Program-level isolation, RBAC, Certificate Authentication`);
-    console.log(`Health Check: http://localhost:${PORT}/api/health`);
-    console.log(`Auth Test: http://localhost:${PORT}/api/auth/me`);
-    console.log(`Programs: http://localhost:${PORT}/api/programs`);
-});
+// Export app for testing
+module.exports = app;
+
+// Start server only if not in test environment
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`H10CM Multi-Tenant API server running on port ${PORT}`);
+        console.log(`Database: H10CM (Multi-Tenant Architecture)`);
+        console.log(`Features: Program-level isolation, RBAC, Certificate Authentication`);
+        console.log(`Health Check: http://localhost:${PORT}/api/health`);
+        console.log(`Auth Test: http://localhost:${PORT}/api/auth/me`);
+        console.log(`Programs: http://localhost:${PORT}/api/programs`);
+    });
+}
