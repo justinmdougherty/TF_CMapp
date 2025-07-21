@@ -38,15 +38,16 @@ import {
   generateFundUsageReport,
   generateCrossPaymentReport,
   generateAuditTrailReport,
-} from '../../services/procurementApi.js';
+} from '../../services/procurementApi';
 import type { Sponsor } from '../../types/ProcurementTypes';
 
 // --- Sponsor Hooks ---
-export const useSponsors = () => {
+export const useSponsors = (programId?: number) => {
   return useQuery({
-    queryKey: ['sponsors'],
-    queryFn: fetchSponsors,
+    queryKey: ['sponsors', programId],
+    queryFn: () => fetchSponsors(programId),
     refetchOnWindowFocus: false,
+    enabled: programId !== undefined,
   });
 };
 
@@ -71,11 +72,12 @@ export const useUpdateSponsor = () => {
 };
 
 // --- Sponsor Fund Hooks ---
-export const useSponsorFunds = () => {
+export const useSponsorFunds = (sponsorId?: number, programId?: number) => {
   return useQuery({
-    queryKey: ['sponsor-funds'],
-    queryFn: fetchSponsorFunds,
+    queryKey: ['sponsor-funds', sponsorId, programId],
+    queryFn: () => fetchSponsorFunds(sponsorId, programId),
     refetchOnWindowFocus: false,
+    enabled: !!sponsorId || !!programId,
   });
 };
 
@@ -101,11 +103,12 @@ export const useUpdateSponsorFund = () => {
   });
 };
 
-export const useFundUsageSummary = () => {
+export const useFundUsageSummary = (programId?: number) => {
   return useQuery({
-    queryKey: ['fund-usage-summary'],
-    queryFn: getFundUsageSummary,
+    queryKey: ['fund-usage-summary', programId],
+    queryFn: () => getFundUsageSummary(programId),
     refetchOnWindowFocus: false,
+    enabled: programId !== undefined,
   });
 };
 

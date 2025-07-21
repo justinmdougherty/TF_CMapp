@@ -57,6 +57,7 @@ import { useCreateTask, useUpdateTask, useTasks } from 'src/hooks/api/useTaskHoo
 import EnhancedTaskManagementComponent from 'src/components/shared/EnhancedTaskManagementComponent';
 import { TaskItem, CreateTaskRequest } from 'src/types/Task';
 import { TeamMember } from 'src/types/User';
+import { useQuery } from '@tanstack/react-query';
 
 // Enhanced status configuration with better colors and meanings
 const getStatusConfig = (status: ProjectStatus) => {
@@ -111,6 +112,18 @@ const BCrumb = [{ to: '/', title: 'Home' }, { title: 'Project Management' }];
 const ProjectManagementDashboard = () => {
   const { currentUser, hasRole } = useRBAC();
   const { data: projects, isLoading, isError, error, refetch } = useGetProjects();
+
+  // Fetch team members from API instead of hardcoded data
+  const { data: teamMembers = [], isLoading: teamMembersLoading } = useQuery<TeamMember[]>({
+    queryKey: ['team-members'],
+    queryFn: async () => {
+      const response = await fetch('/api/team-members');
+      if (!response.ok) {
+        throw new Error('Failed to fetch team members');
+      }
+      return response.json();
+    },
+  });
 
   // Debug logging
   console.log('🏗️ ProjectManagementDashboard: Component rendered');
@@ -390,70 +403,15 @@ const ProjectManagementDashboard = () => {
       {/* Enhanced Task Management Section */}
       <Box sx={{ mb: 4 }}>
         <EnhancedTaskManagementComponent
-          teamMembers={
-            [
-              // Sample team members - this would come from your user management system
-              {
-                user_id: '1',
-                username: 'jsmith',
-                full_name: 'John Smith',
-                role: 'Production Technician',
-                status: 'Active',
-                availability_status: 'Available',
-                skills: ['Manufacturing', 'Quality Control', 'Assembly'],
-                current_task_count: 2,
-                productivity_score: 88,
-                last_active: new Date(),
-              },
-              {
-                user_id: '2',
-                username: 'sjohnson',
-                full_name: 'Sarah Johnson',
-                role: 'Production Manager',
-                status: 'Active',
-                availability_status: 'Available',
-                skills: ['Project Management', 'Scheduling', 'Quality Control'],
-                current_task_count: 4,
-                productivity_score: 94,
-                last_active: new Date(),
-              },
-              {
-                user_id: '3',
-                username: 'mrodriguez',
-                full_name: 'Miguel Rodriguez',
-                role: 'Quality Inspector',
-                status: 'Active',
-                availability_status: 'Busy',
-                skills: ['Quality Control', 'Testing', 'Documentation'],
-                current_task_count: 6,
-                productivity_score: 85,
-                last_active: new Date(),
-              },
-              {
-                user_id: '4',
-                username: 'alee',
-                full_name: 'Anna Lee',
-                role: 'Inventory Specialist',
-                status: 'Active',
-                availability_status: 'Available',
-                skills: ['Inventory Management', 'Procurement', 'Logistics'],
-                current_task_count: 1,
-                productivity_score: 91,
-                last_active: new Date(),
-              },
-            ] as TeamMember[]
-          }
+          teamMembers={teamMembers}
           onCreateTask={async (task: CreateTaskRequest) => {
             try {
               await createTaskMutation.mutateAsync(task);
 
               // Find the assigned team member to get their name
-              const assignedMember = [
-                { user_id: '1', username: 'jsmith', full_name: 'John Smith' },
-                { user_id: '2', username: 'sjohnson', full_name: 'Sarah Johnson' },
-                { user_id: '3', username: 'mrodriguez', full_name: 'Miguel Rodriguez' },
-                { user_id: '4', username: 'alee', full_name: 'Anna Lee' },
-              ].find((member) => member.user_id === task.assigned_to);
+              const assignedMember = teamMembers.find(
+                (member) => member.user_id === task.assigned_to,
+              );
 
               // Show success notification with assignment details
               const memberName = assignedMember?.full_name || task.assigned_to;

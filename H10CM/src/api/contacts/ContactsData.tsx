@@ -1,4 +1,3 @@
-
 import user1 from 'src/assets/images/profile/user-1.jpg';
 import user2 from 'src/assets/images/profile/user-2.jpg';
 import user3 from 'src/assets/images/profile/user-3.jpg';
@@ -8,12 +7,11 @@ import type { ContactType } from 'src/types/apps/contact';
 import { Chance } from 'chance';
 import { http, HttpResponse } from 'msw';
 
-
 const chance = new Chance();
 
 export let ContactList: ContactType[] = [
   {
-    id: 1,
+    id: '1',
     firstname: 'Georgeanna',
     lastname: 'Ramero',
     image: user2,
@@ -464,70 +462,64 @@ export let ContactList: ContactType[] = [
   },
 ];
 
-
-
 export const Contacthandlers = [
   // Mock API endpoint to add a get contacts
   http.get('/api/data/contacts/contactsData', () => {
     try {
       return HttpResponse.json({
         status: 200,
-        msg: "success",
+        msg: 'success',
         data: ContactList,
       });
     } catch (error) {
-      return HttpResponse.json({ status: 400, msg: "failed", data: error });
+      return HttpResponse.json({ status: 400, msg: 'failed', data: error });
     }
   }),
 
   // Mock API endpoint to add a new contact
   http.post('/api/data/contacts/addContact', async ({ request }) => {
     try {
-      let newContact = await request.json() as ContactType;
+      let newContact = (await request.json()) as ContactType;
       newContact.id = ContactList.length + 1;
       ContactList.push(newContact);
       return HttpResponse.json({
         status: 200,
-        msg: "success",
+        msg: 'success',
         data: ContactList,
       });
     } catch (error) {
-      return HttpResponse.json({ status: 400, msg: "failed", data: error });
+      return HttpResponse.json({ status: 400, msg: 'failed', data: error });
     }
   }),
 
   // Mock API endpoint to delete a contact
-  http.delete("/api/data/contacts/deleteContact", async ({ request }) => {
+  http.delete('/api/data/contacts/deleteContact', async ({ request }) => {
     try {
-      const { data } = await request.json() as { data: any };
+      const { data } = (await request.json()) as { data: any };
 
       let contactId = data.contactId;
-      const contactIndex = ContactList.findIndex(
-        (contact) => contact.id === contactId
-      );
+      const contactIndex = ContactList.findIndex((contact) => contact.id === contactId);
       if (contactIndex !== -1) {
         ContactList = ContactList.filter((contact) => contact.id !== contactId);
         return HttpResponse.json({
           status: 200,
-          msg: "success",
+          msg: 'success',
           data: ContactList,
         });
       } else {
-        return HttpResponse.json({ status: 404, msg: "Contact not found" });
+        return HttpResponse.json({ status: 404, msg: 'Contact not found' });
       }
     } catch (error) {
-
-      return HttpResponse.json({ status: 400, msg: "failed", data: error });
+      return HttpResponse.json({ status: 400, msg: 'failed', data: error });
     }
   }),
 
-
   // Mock API endpoint to update a contact
-  http.put("/api/data/contacts/updateContact", async ({ request }) => {
+  http.put('/api/data/contacts/updateContact', async ({ request }) => {
     try {
-      const updatedContactData = await request.json() as ContactType;
+      const updatedContactData = (await request.json()) as ContactType;
       const updatedContactIndex = ContactList.findIndex(
-        (contact) => contact.id === updatedContactData.id
+        (contact) => contact.id === updatedContactData.id,
       );
       if (updatedContactIndex !== -1) {
         ContactList[updatedContactIndex] = {
@@ -536,14 +528,14 @@ export const Contacthandlers = [
         };
         return HttpResponse.json({
           status: 200,
-          msg: "success",
+          msg: 'success',
           data: ContactList,
         });
       } else {
-        return HttpResponse.json({ status: 404, msg: "Contact not found" });
+        return HttpResponse.json({ status: 404, msg: 'Contact not found' });
       }
     } catch (error) {
-      return HttpResponse.json({ status: 400, msg: "failed", data: error });
+      return HttpResponse.json({ status: 400, msg: 'failed', data: error });
     }
-  })
-]
+  }),
+];

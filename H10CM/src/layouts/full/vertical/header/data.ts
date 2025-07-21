@@ -10,7 +10,6 @@ import ddIcon1 from 'src/assets/images/svgs/icon-dd-chat.svg'
 import ddIcon2 from 'src/assets/images/svgs/icon-dd-cart.svg'
 import ddIcon3 from 'src/assets/images/svgs/icon-dd-invoice.svg'
 import ddIcon4 from 'src/assets/images/svgs/icon-dd-date.svg'
-import ddIcon5 from 'src/assets/images/svgs/icon-dd-mobile.svg'
 import ddIcon6 from 'src/assets/images/svgs/icon-dd-lifebuoy.svg'
 import ddIcon7 from 'src/assets/images/svgs/icon-dd-message-box.svg'
 import ddIcon8 from 'src/assets/images/svgs/icon-dd-application.svg'
@@ -158,12 +157,6 @@ const appsLink:appsLinkType[] = [
     title: 'Calendar App',
     subtext: 'Get dates',
     avatar: ddIcon4
-  },
-  {
-    href: '/',
-    title: 'Contact Application',
-    subtext: '2 Unsaved Contacts',
-    avatar: ddIcon5
   },
   {
     href: '/',

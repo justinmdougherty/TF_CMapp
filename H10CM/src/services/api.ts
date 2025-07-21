@@ -23,6 +23,46 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+// Add response interceptor for error handling
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Extract error message from response
+    const errorMessage = error.response?.data?.error || 
+                        error.response?.data?.message || 
+                        error.message || 
+                        'An unexpected error occurred';
+    
+    // Log the error for debugging
+    console.error('API Error:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      message: errorMessage,
+      data: error.response?.data
+    });
+    
+    // Show user-friendly notification for API errors
+    if (error.response?.status >= 400) {
+      // Import notifications lazily to avoid circular dependencies
+      import('./notificationService').then(({ notifications }) => {
+        if (error.response?.status >= 500) {
+          notifications.error(`Server Error: ${errorMessage}`);
+        } else if (error.response?.status === 403) {
+          notifications.error('Access denied. Please check your permissions.');
+        } else if (error.response?.status === 401) {
+          notifications.error('Authentication required. Please log in again.');
+        } else {
+          notifications.error(`Error: ${errorMessage}`);
+        }
+      });
+    }
+    
+    // Re-throw the error so React Query can handle it
+    return Promise.reject(error);
+  }
+);
+
 // --- Project API Functions ---
 export const fetchProjects = async (): Promise<Project[]> => {
   const { data } = await apiClient.get('/projects');
@@ -395,141 +435,43 @@ export const updatePendingOrderStatus = async (
   status: PendingOrderStatus, 
   notes?: string
 ): Promise<PendingOrderItem> => {
-  // TODO: Replace with actual API call when backend is ready
-  // For now, use localStorage as temporary storage
-  try {
-    const orders = JSON.parse(localStorage.getItem('pendingOrders') || '[]');
-    const updatedOrders = orders.map((order: PendingOrderItem) => {
-      if (order.pending_order_id === pending_order_id) {
-        const oldStatus = order.status;
-        const updatedOrder = {
-          ...order,
-          status,
-          notes: notes || order.notes,
-        };
-
-        // Set appropriate date and user fields based on status
-        if (status === 'ordered' && order.status === 'requested') {
-          updatedOrder.date_ordered = new Date();
-          updatedOrder.ordered_by = 'Current User'; // Will be updated with real user in component
-        } else if (status === 'shipped' && (order.status === 'ordered' || order.status === 'requested')) {
-          updatedOrder.date_shipped = new Date();
-          updatedOrder.shipped_by = 'Current User'; // Will be updated with real user in component
-        }
-
-        // Create notification for status change
-        smartNotifications.notifyOrderStatusChange(updatedOrder, oldStatus);
-
-        return updatedOrder;
-      }
-      return order;
-    });
-    
-    localStorage.setItem('pendingOrders', JSON.stringify(updatedOrders));
-    const updatedOrder = updatedOrders.find((order: PendingOrderItem) => order.pending_order_id === pending_order_id);
-    console.log('Updated order status (localStorage):', updatedOrder);
-    
-    return updatedOrder;
-  } catch (error) {
-    console.error('Error updating order status:', error);
-    throw new Error('Failed to update order status');
-  }
+  const { data } = await apiClient.put(`/orders/${pending_order_id}/status`, {
+    status,
+    notes
+  });
   
-  // Original API call (commented out for now)
-  // const { data } = await apiClient.patch(`/pending-orders/${pending_order_id}/status`, { 
-  //   status, 
-  //   notes 
-  // });
-  // return data;
+  // Create notification for status change
+  smartNotifications.notifyOrderStatusChange(data, data.previous_status);
+  
+  return data;
 };
 
 export const receiveOrderItems = async (request: ReceiveItemsRequest): Promise<BulkSubmissionResult> => {
-  // TODO: Replace with actual API call when backend is ready
-  // For now, use localStorage as temporary storage
-  try {
-    const orders = JSON.parse(localStorage.getItem('pendingOrders') || '[]');
-    const updatedOrders: PendingOrderItem[] = [];
-    
-    orders.forEach((order: PendingOrderItem) => {
-      const receivedItem = request.items.find(item => item.pending_order_id === order.pending_order_id);
-      
-      if (receivedItem && receivedItem.quantity_received > 0) {
-        const remainingQty = order.quantity_requested - order.quantity_received - receivedItem.quantity_received;
-        
-        if (remainingQty > 0) {
-          // Create new order for remaining quantity
-          const remainingOrder = {
-            ...order,
-            pending_order_id: Date.now() + Math.random(), // New ID for remaining order
-            quantity_requested: remainingQty,
-            quantity_received: 0,
-            status: 'requested' as PendingOrderStatus,
-            notes: `Split from partial receipt of order #${order.pending_order_id}. Original qty: ${order.quantity_requested}, previously received: ${order.quantity_received}, this receipt: ${receivedItem.quantity_received}, remaining: ${remainingQty}`,
-            date_requested: new Date(), // Reset request date for new order
-          };
-          updatedOrders.push(remainingOrder);
-        }
-        
-        // Mark original order as received with actual received quantity
-        const completedOrder = {
-          ...order,
-          quantity_received: order.quantity_received + receivedItem.quantity_received,
-          status: 'received' as PendingOrderStatus,
-          date_received: new Date(),
-          received_by: request.received_by || 'Unknown User',
-          notes: receivedItem.notes ? `${order.notes || ''}\n${receivedItem.notes}`.trim() : order.notes,
-        };
-        updatedOrders.push(completedOrder);
-        
-        // Create notification for received order
-        smartNotifications.createNotification({
-          type: 'success',
-          category: 'orders',
-          title: remainingQty > 0 ? 'Partial Order Received' : 'Order Received',
-          message: `Received ${receivedItem.quantity_received} ${order.unit_of_measure} of ${order.item_name}${remainingQty > 0 ? ` (${remainingQty} still pending)` : ''}`,
-          actionRequired: false,
-          relatedEntityType: 'order',
-          relatedEntityId: order.pending_order_id,
-          actionUrl: '/orders/pending',
-          actionLabel: 'View Orders',
-          metadata: { 
-            itemName: order.item_name,
-            quantityReceived: receivedItem.quantity_received,
-            quantityRemaining: remainingQty,
-            isPartial: remainingQty > 0
-          },
-          icon: remainingQty > 0 ? '📦' : '✅',
-        });
-        
-        // TODO: Add the received quantity to actual inventory here
-        console.log(`TODO: Add ${receivedItem.quantity_received} ${order.unit_of_measure} of ${order.item_name} to inventory`);
-        
-      } else {
-        // Keep unchanged orders
-        updatedOrders.push(order);
-      }
-    });
-    
-    localStorage.setItem('pendingOrders', JSON.stringify(updatedOrders));
-    console.log('Updated received items with split orders (localStorage):', updatedOrders);
-    
-    // Count successful items
-    const processedItems = request.items.filter(item => item.quantity_received > 0);
-    
-    return {
-      success: true,
-      message: `Successfully received ${processedItems.length} items. Partial receipts created separate orders for remaining quantities.`,
-      successfulItems: processedItems.map(item => item.pending_order_id.toString()),
-      failedItems: []
-    };
-  } catch (error) {
-    console.error('Error receiving items:', error);
-    throw new Error('Failed to receive items');
-  }
+  const { data } = await apiClient.put('/orders/receive', request);
   
-  // Original API call (commented out for now)
-  // const { data } = await apiClient.post('/pending-orders/receive', request);
-  // return data;
+  // Create notifications for received items
+  request.items.forEach(item => {
+    if (item.quantity_received > 0) {
+      smartNotifications.createNotification({
+        type: 'success',
+        category: 'orders',
+        title: 'Order Received',
+        message: `Received ${item.quantity_received} units for order #${item.pending_order_id}`,
+        actionRequired: false,
+        relatedEntityType: 'order',
+        relatedEntityId: item.pending_order_id,
+        actionUrl: '/orders/pending',
+        actionLabel: 'View Orders',
+        metadata: { 
+          quantityReceived: item.quantity_received,
+          notes: item.notes
+        },
+        icon: '✅',
+      });
+    }
+  });
+  
+  return data;
 };
 
 export const getPendingOrdersSummary = async (): Promise<PendingOrderSummary> => {
@@ -545,109 +487,151 @@ export const deletePendingOrder = async (pending_order_id: number): Promise<void
 import { TaskItem, CreateTaskRequest, UpdateTaskRequest, TaskStatistics, UserTaskSummary } from 'src/types/Task';
 
 export const fetchTasks = async (): Promise<TaskItem[]> => {
-  // This would typically fetch from /api/tasks
-  // For now, return mock data
-  return [];
+  try {
+    const response = await fetch('/api/tasks');
+    if (!response.ok) {
+      throw new Error('Failed to fetch tasks');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    return []; // Return empty array on error
+  }
 };
 
 export const fetchTasksByProject = async (projectId: string): Promise<TaskItem[]> => {
-  // This would typically fetch from /api/projects/{projectId}/tasks
-  // For now, return mock data
-  return [];
+  try {
+    const response = await fetch(`/api/projects/${projectId}/tasks`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch project tasks');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching project tasks:', error);
+    return []; // Return empty array on error
+  }
 };
 
 export const fetchTasksByUser = async (userId: string): Promise<TaskItem[]> => {
-  // This would typically fetch from /api/users/{userId}/tasks
-  // For now, return mock data
-  return [];
+  try {
+    const response = await fetch(`/api/users/${userId}/tasks`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch user tasks');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching user tasks:', error);
+    return []; // Return empty array on error
+  }
 };
 
 export const createTask = async (task: CreateTaskRequest): Promise<TaskItem> => {
-  // This would typically call POST /api/tasks
-  // For now, return mock task
-  const mockTask: TaskItem = {
-    task_id: Date.now().toString(),
-    ...task,
-    assigned_by: 'current-user', // Would come from auth context
-    status: 'Pending',
-    created_date: new Date(),
-    updated_date: new Date(),
-  };
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  console.log('Created task:', mockTask);
-  return mockTask;
+  try {
+    const response = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(task),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create task');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error creating task:', error);
+    throw error;
+  }
 };
 
 export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Promise<TaskItem> => {
-  // This would typically call PUT /api/tasks/{taskId}
-  // For now, return mock updated task
-  const mockUpdatedTask: TaskItem = {
-    task_id: taskId,
-    title: 'Mock Task',
-    priority: 'Medium',
-    status: 'Pending',
-    category: 'General',
-    assigned_to: '',
-    assigned_by: '',
-    created_date: new Date(),
-    updated_date: new Date(),
-    ...updates,
-  };
-  
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  console.log('Updated task:', taskId, updates);
-  return mockUpdatedTask;
+  try {
+    const response = await fetch(`/api/tasks/${taskId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update task');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating task:', error);
+    throw error;
+  }
 };
 
 export const deleteTask = async (taskId: string): Promise<void> => {
-  // This would typically call DELETE /api/tasks/{taskId}
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  console.log('Deleted task:', taskId);
+  try {
+    const response = await fetch(`/api/tasks/${taskId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete task');
+    }
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    throw error;
+  }
 };
 
 export const getTaskStatistics = async (): Promise<TaskStatistics> => {
-  // This would typically fetch from /api/tasks/statistics
-  const mockStats: TaskStatistics = {
-    total_tasks: 0,
-    pending_tasks: 0,
-    in_progress_tasks: 0,
-    completed_tasks: 0,
-    overdue_tasks: 0,
-    high_priority_tasks: 0,
-    tasks_by_category: {
-      Production: 0,
-      Inventory: 0,
-      Quality: 0,
-      Planning: 0,
-      Maintenance: 0,
-      General: 0,
-    },
-    tasks_by_user: {},
-  };
-  
-  return mockStats;
+  try {
+    const response = await fetch('/api/tasks/statistics');
+    if (!response.ok) {
+      throw new Error('Failed to fetch task statistics');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching task statistics:', error);
+    // Return empty stats on error
+    return {
+      total_tasks: 0,
+      pending_tasks: 0,
+      in_progress_tasks: 0,
+      completed_tasks: 0,
+      overdue_tasks: 0,
+      high_priority_tasks: 0,
+      tasks_by_category: {
+        Production: 0,
+        Inventory: 0,
+        Quality: 0,
+        Planning: 0,
+        Maintenance: 0,
+        General: 0,
+      },
+      tasks_by_user: {},
+    };
+  }
 };
 
 export const getUserTaskSummary = async (userId: string): Promise<UserTaskSummary> => {
-  // This would typically fetch from /api/users/{userId}/task-summary
-  const mockSummary: UserTaskSummary = {
-    user_id: userId,
-    username: 'mock-user',
-    pending_tasks: [],
-    in_progress_tasks: [],
-    overdue_tasks: [],
-    completed_today: 0,
-    total_assigned: 0,
-  };
-  
-  return mockSummary;
+  try {
+    const response = await fetch(`/api/users/${userId}/task-summary`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch user task summary');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching user task summary:', error);
+    // Return empty summary on error
+    return {
+      user_id: userId,
+      username: 'unknown',
+      pending_tasks: [],
+      in_progress_tasks: [],
+      overdue_tasks: [],
+      completed_today: 0,
+      total_assigned: 0,
+    };
+  }
 };
 
 // --- Cart API Functions ---

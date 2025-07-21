@@ -75,6 +75,11 @@ const LoginComponent: React.FC<LoginComponentProps> = ({ onLoginSuccess }) => {
             status: 'Active',
             created_date: new Date('2024-01-01'),
             permissions: [],
+            program_access: [],
+            accessible_programs: [],
+            accessible_projects: [],
+            can_see_all_programs: true,
+            can_create_programs: true,
           },
           {
             user_id: 'pm-001',
@@ -84,6 +89,11 @@ const LoginComponent: React.FC<LoginComponentProps> = ({ onLoginSuccess }) => {
             status: 'Active',
             created_date: new Date('2024-01-15'),
             permissions: [],
+            program_access: [],
+            accessible_programs: [],
+            accessible_projects: [],
+            can_see_all_programs: false,
+            can_create_programs: false,
           },
           {
             user_id: 'tech-001',
@@ -93,6 +103,11 @@ const LoginComponent: React.FC<LoginComponentProps> = ({ onLoginSuccess }) => {
             status: 'Active',
             created_date: new Date('2024-02-01'),
             permissions: [],
+            program_access: [],
+            accessible_programs: [],
+            accessible_projects: [],
+            can_see_all_programs: false,
+            can_create_programs: false,
           },
           {
             user_id: 'visitor-001',
@@ -102,6 +117,11 @@ const LoginComponent: React.FC<LoginComponentProps> = ({ onLoginSuccess }) => {
             status: 'Active',
             created_date: new Date('2024-02-15'),
             permissions: [],
+            program_access: [],
+            accessible_programs: [],
+            accessible_projects: [],
+            can_see_all_programs: false,
+            can_create_programs: false,
           },
         ];
         setAvailableUsers(mockUsers);

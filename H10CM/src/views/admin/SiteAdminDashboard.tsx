@@ -48,6 +48,7 @@ import UserManagementDashboard from '../../components/admin/UserManagementDashbo
 import LoginComponent from '../../components/auth/LoginComponent';
 import APIDocumentation from '../../components/admin/APIDocumentation';
 import DebugControlPanel from '../../components/admin/DebugControlPanel';
+import { notifications } from '../../services/notificationService';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -169,30 +170,26 @@ const SiteAdminDashboard: React.FC = () => {
 
   // Load program access requests
   const loadProgramAccessRequests = async () => {
-    // Mock data for now - replace with actual API call
-    const mockRequests = [
-      {
-        id: 1,
-        user_name: 'John Smith',
-        user_email: 'john.smith@example.com',
-        program_name: 'Aerospace Division',
-        access_level: 'Write',
-        justification: 'Need access to update production schedules',
-        request_date: '2025-01-14',
-        status: 'Pending',
-      },
-      {
-        id: 2,
-        user_name: 'Sarah Johnson',
-        user_email: 'sarah.johnson@example.com',
-        program_name: 'TF Operations',
-        access_level: 'Read',
-        justification: 'Require read access for reporting purposes',
-        request_date: '2025-01-13',
-        status: 'Pending',
-      },
-    ];
-    setProgramAccessRequests(mockRequests);
+    try {
+      const response = await fetch('/api/users/access-requests', {
+        headers: {
+          'x-arr-clientcert': 'development-fallback',
+        },
+      });
+
+      if (response.ok) {
+        const requests = await response.json();
+        setProgramAccessRequests(requests);
+      } else {
+        console.error('Failed to fetch access requests:', response.status);
+        notifications.error('Failed to load program access requests');
+        setProgramAccessRequests([]);
+      }
+    } catch (error) {
+      console.error('Error fetching access requests:', error);
+      notifications.error('Error loading program access requests');
+      setProgramAccessRequests([]);
+    }
   };
 
   // Handle program creation

@@ -297,12 +297,17 @@ const UserManagementDashboard: React.FC<UserManagementDashboardProps> = ({
                     <TableCell>
                       <Stack direction="row" spacing={2} alignItems="center">
                         <Avatar sx={{ bgcolor: getRoleColor(user.role) + '.main' }}>
-                          {user.full_name.charAt(0)}
+                          {(user.full_name || user.display_name || user.user_name || 'U').charAt(0)}
                         </Avatar>
                         <Box>
-                          <Typography variant="subtitle2">{user.full_name}</Typography>
+                          <Typography variant="subtitle2">
+                            {user.full_name ||
+                              user.display_name ||
+                              user.user_name ||
+                              'Unknown User'}
+                          </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {user.email}
+                            {user.email || 'No email'}
                           </Typography>
                         </Box>
                       </Stack>

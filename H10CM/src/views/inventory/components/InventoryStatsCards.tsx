@@ -114,10 +114,10 @@ const InventoryStatsCards: React.FC<InventoryStatsCardsProps> = ({ inventoryItem
     const categories = new Set<string>();
 
     inventoryItems.forEach((item) => {
-      // Calculate total value (using estimated $10 per item since unit_cost not available)
-      const estimatedUnitCost = 10; // Placeholder until unit_cost is added to schema
+      // Use actual cost per unit from database, fallback to 0 if not available
+      const unitCost = item.cost_per_unit || 0;
       const currentStock = item.current_stock_level || 0;
-      totalValue += currentStock * estimatedUnitCost;
+      totalValue += currentStock * unitCost;
 
       // Count low stock items
       if (currentStock <= 0) {

@@ -16,9 +16,6 @@ const ProjectManagementDashboard = Loadable(
   lazy(() => import('../views/project-management/ProjectManagementDashboard')),
 );
 const ProjectDetailPage = Loadable(lazy(() => import('../views/project-detail/ProjectDetailPage')));
-const TestProjectDetailPage = Loadable(
-  lazy(() => import('../views/project-detail/TestProjectDetailPage')),
-);
 const Error = Loadable(lazy(() => import('../views/authentication/Error')));
 
 // Import new placeholder pages
@@ -28,7 +25,6 @@ const InventoryPage = Loadable(lazy(() => import('../views/inventory/InventoryPa
 // const TicketsPage = Loadable(lazy(() => import('../views/apps/tickets/Tickets')));
 const HealthDashboard = Loadable(lazy(() => import('../views/system/HealthDashboard')));
 const SearchResultsPage = Loadable(lazy(() => import('../views/search/SearchResultsPage')));
-const SearchSystemDemo = Loadable(lazy(() => import('../components/shared/SearchSystemDemo')));
 const PendingOrdersPage = Loadable(lazy(() => import('../views/orders/PendingOrdersPage')));
 const NotificationTestComponent = Loadable(
   lazy(() => import('../components/shared/NotificationTestComponent')),
@@ -60,7 +56,6 @@ const Router = [
       { path: '/my-tasks', element: <MyTasksPage /> }, // My Tasks route
       { path: '/system/health', element: <HealthDashboard /> },
       { path: '/search', element: <SearchResultsPage /> },
-      { path: '/search/demo', element: <SearchSystemDemo /> },
       { path: '/notifications/test', element: <NotificationTestComponent /> },
       { path: '/admin', element: <SiteAdminDashboard /> }, // Admin route
 

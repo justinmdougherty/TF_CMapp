@@ -7,6 +7,7 @@ import {
   UserAccessRequest,
 } from '../types/UserPermissions';
 import { AccessRequest, AccessResult, Program } from '../types/ProgramAccess';
+import AccessRequestSplash from '../components/auth/AccessRequestSplash';
 
 interface RBACContextType {
   currentUser: UserProfile | null;
@@ -66,125 +67,13 @@ interface RBACProviderProps {
   children: ReactNode;
 }
 
-// Mock data for development - replace with actual API calls
-const mockUsers: UserProfile[] = [
-  {
-    user_id: 'admin-001',
-    email: 'admin@tfproject.com',
-    full_name: 'System Administrator',
-    role: 'Admin',
-    status: 'Active',
-    created_date: new Date('2024-01-01'),
-    last_login: new Date(),
-    has_certificate: true,
-    certificate_thumbprint: 'admin-cert-123',
-    permissions: DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'Admin')?.permissions || [],
-    program_access: [], // Admin has system-wide access
-    accessible_programs: [],
-    accessible_projects: [],
-    can_see_all_programs: true,
-    can_create_programs: true,
-  },
-  {
-    user_id: 'pm-001',
-    email: 'pm@tfproject.com',
-    full_name: 'Project Manager',
-    role: 'ProjectManager',
-    status: 'Active',
-    created_date: new Date('2024-01-15'),
-    last_login: new Date(Date.now() - 86400000), // Yesterday
-    has_certificate: false,
-    permissions:
-      DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'ProjectManager')?.permissions || [],
-    program_access: [
-      {
-        program_id: 'tf-main',
-        program_name: 'TF Main Program',
-        user_role: 'ProjectManager',
-        access_level: 'Program',
-        granted_date: new Date('2024-01-15'),
-        granted_by: 'admin-001',
-        project_assignments: [],
-      },
-    ],
-    accessible_programs: ['tf-main'],
-    accessible_projects: [],
-    can_see_all_programs: false,
-    can_create_programs: false,
-  },
-  {
-    user_id: 'tech-001',
-    email: 'tech@tfproject.com',
-    full_name: 'Lead Technician',
-    role: 'Technician',
-    status: 'Active',
-    created_date: new Date('2024-02-01'),
-    last_login: new Date(Date.now() - 3600000), // 1 hour ago
-    has_certificate: false,
-    permissions: DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'Technician')?.permissions || [],
-    program_access: [
-      {
-        program_id: 'tf-main',
-        program_name: 'TF Main Program',
-        user_role: 'Technician',
-        access_level: 'Limited',
-        granted_date: new Date('2024-02-01'),
-        granted_by: 'pm-001',
-        project_assignments: [
-          {
-            project_id: 'proj-001',
-            project_name: 'Project Alpha',
-            program_id: 'tf-main',
-            user_role: 'Technician',
-            access_level: 'Write',
-            granted_date: new Date('2024-02-01'),
-            granted_by: 'pm-001',
-          },
-        ],
-      },
-    ],
-    accessible_programs: ['tf-main'],
-    accessible_projects: ['proj-001'],
-    can_see_all_programs: false,
-    can_create_programs: false,
-  },
-  {
-    user_id: 'visitor-001',
-    email: 'visitor@tfproject.com',
-    full_name: 'Guest User',
-    role: 'Visitor',
-    status: 'Active',
-    created_date: new Date('2024-02-15'),
-    last_login: new Date(Date.now() - 7200000), // 2 hours ago
-    has_certificate: false,
-    permissions: DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'Visitor')?.permissions || [],
-    program_access: [],
-    accessible_programs: [],
-    accessible_projects: [],
-    can_see_all_programs: false,
-    can_create_programs: false,
-  },
-];
-
-const mockPendingRequests: UserAccessRequest[] = [
-  {
-    request_id: 'req-001',
-    user_id: 'pending-001',
-    email: 'newuser@tfproject.com',
-    full_name: 'New User',
-    requested_role: 'Technician',
-    justification: 'Need access to production tracking for quality control work',
-    requested_date: new Date(Date.now() - 86400000),
-    status: 'pending',
-  },
-];
-
 export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>(mockUsers);
-  const [pendingRequests, setPendingRequests] = useState<UserAccessRequest[]>(mockPendingRequests);
+  const [showAccessRequest, setShowAccessRequest] = useState(false);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<UserAccessRequest[]>([]);
   const [currentProgram, setCurrentProgram] = useState<string | null>(null);
   const [availablePrograms] = useState<Program[]>([]);
 
@@ -196,6 +85,15 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
         const response = await fetch('/api/auth/me');
         if (response.ok) {
           const authData = await response.json();
+
+          // Check if we got an error response or no user data
+          if (authData.error || !authData.user) {
+            console.log('Authentication required:', authData.error || 'No user data');
+            setShowAccessRequest(true);
+            setIsLoading(false);
+            return;
+          }
+
           const user = authData.user;
 
           // Map the API response to our UserProfile format
@@ -223,9 +121,11 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
           setIsAuthenticated(true);
         } else {
           console.log('No authenticated user found');
+          setShowAccessRequest(true);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
+        setShowAccessRequest(true);
       } finally {
         setIsLoading(false);
       }
@@ -233,6 +133,71 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
 
     initializeAuth();
   }, []);
+
+  // Fetch all users from API
+  const fetchAllUsers = async () => {
+    try {
+      const response = await fetch('/api/users', {
+        headers: {
+          'x-arr-clientcert': 'development-fallback',
+        },
+      });
+
+      if (response.ok) {
+        const users = await response.json();
+        // Map API users to UserProfile format
+        const mappedUsers: UserProfile[] = users.map((user: any) => ({
+          user_id: user.user_id.toString(),
+          email: user.email || '',
+          full_name: user.display_name || user.username || '',
+          role: user.is_system_admin ? 'Admin' : 'Technician',
+          status: 'Active',
+          created_date: new Date(user.created_date || new Date()),
+          last_login: new Date(user.last_login || new Date()),
+          has_certificate: user.has_certificate || false,
+          certificate_thumbprint: user.certificate_thumbprint || '',
+          permissions: user.is_system_admin
+            ? DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'Admin')?.permissions || []
+            : DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'Technician')?.permissions || [],
+          program_access: user.program_access || [],
+          accessible_programs: user.accessible_programs || [],
+          accessible_projects: [],
+          can_see_all_programs: user.is_system_admin || false,
+          can_create_programs: user.is_system_admin || false,
+        }));
+
+        setAllUsers(mappedUsers);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    }
+  };
+
+  // Fetch pending access requests from API
+  const fetchPendingRequests = async () => {
+    try {
+      const response = await fetch('/api/users/access-requests', {
+        headers: {
+          'x-arr-clientcert': 'development-fallback',
+        },
+      });
+
+      if (response.ok) {
+        const requests = await response.json();
+        setPendingRequests(requests);
+      }
+    } catch (error) {
+      console.error('Error fetching pending requests:', error);
+    }
+  };
+
+  // Load users and requests when authenticated
+  useEffect(() => {
+    if (isAuthenticated && currentUser?.role === 'Admin') {
+      fetchAllUsers();
+      fetchPendingRequests();
+    }
+  }, [isAuthenticated, currentUser]);
 
   // Calculate user permissions based on role
   const userPermissions = currentUser?.permissions || [];
@@ -638,6 +603,71 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
     removeUserFromProgram,
     removeUserFromProject,
   };
+
+  // Show access request splash if authentication failed
+  if (showAccessRequest && !isLoading) {
+    const retryAuthentication = async () => {
+      setIsLoading(true);
+      setShowAccessRequest(false);
+
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const authData = await response.json();
+
+          if (authData.error || !authData.user) {
+            setShowAccessRequest(true);
+            setIsLoading(false);
+            return;
+          }
+
+          const user = authData.user;
+          const userProfile: UserProfile = {
+            user_id: user.user_id.toString(),
+            email: user.email || '',
+            full_name: user.displayName || user.username || '',
+            role: user.is_system_admin ? 'Admin' : 'Technician',
+            status: 'Active',
+            created_date: new Date(),
+            last_login: new Date(),
+            has_certificate: true,
+            certificate_thumbprint: user.certificateInfo?.subject || '',
+            permissions: user.is_system_admin
+              ? DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'Admin')?.permissions || []
+              : DEFAULT_ROLE_PERMISSIONS.find((r) => r.role === 'Technician')?.permissions || [],
+            program_access: user.program_access || [],
+            accessible_programs: user.accessible_programs || [],
+            accessible_projects: [],
+            can_see_all_programs: user.is_system_admin || false,
+            can_create_programs: user.is_system_admin || false,
+          };
+
+          setCurrentUser(userProfile);
+          setIsAuthenticated(true);
+        } else {
+          setShowAccessRequest(true);
+        }
+      } catch (error) {
+        console.error('Error retrying auth:', error);
+        setShowAccessRequest(true);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    return (
+      <RBACContext.Provider value={contextValue}>
+        <AccessRequestSplash
+          onRequestSubmitted={() => {
+            // After access request is submitted, show success message
+            // and allow automatic retry after a delay
+            setTimeout(retryAuthentication, 2000);
+          }}
+          onRetryAuth={retryAuthentication}
+        />
+      </RBACContext.Provider>
+    );
+  }
 
   return <RBACContext.Provider value={contextValue}>{children}</RBACContext.Provider>;
 };

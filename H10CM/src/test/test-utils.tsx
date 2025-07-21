@@ -3,7 +3,12 @@ import { render, RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { theme } from '../theme/Theme';
+import { BuildTheme } from '../theme/Theme';
+
+// Create a default theme for testing
+const defaultTheme = BuildTheme({
+  theme: 'BLUE_THEME',
+});
 
 // Create a custom render function that includes providers
 const AllTheProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -17,7 +22,7 @@ const AllTheProviders: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider theme={theme}>
+      <ThemeProvider theme={defaultTheme}>
         <CssBaseline />
         {children}
       </ThemeProvider>
