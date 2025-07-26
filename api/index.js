@@ -1,14 +1,31 @@
 // h10cm_api.js - H10CM Multi-Tenant API Server
 
+// Load environment variables from .env file
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
+// Debug: Check if GitHub token is loaded
+console.log('🔑 GitHub Token loaded:', process.env.GITHUB_TOKEN ? `${process.env.GITHUB_TOKEN.substring(0, 8)}...` : 'NOT FOUND');
+
+// Initialize GitHub Error Reporting (must be before other imports)
+const githubErrorReporting = require('./services/githubErrorReporting');
+
+// Initialize Audit Logger
+const { AuditLogger, auditMiddleware, getClientIP, getUserAgent } = require('./services/auditLogger');
+
 // -----------------------------------------------------------------------------
 // SETUP & DEPENDENCIES
 // -----------------------------------------------------------------------------
 const express = require('express');
 const sql = require('mssql');
 const cors = require('cors');
+const { responseMiddleware, executeProcedureStandardized } = require('./helpers/responseHelper');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Add standardized response middleware early in the pipeline
+app.use(responseMiddleware);
 
 // Import route modules
 const procurementRoutes = require('./routes/procurement');
@@ -21,6 +38,9 @@ app.use(express.json());
 
 // Pretty JSON middleware - formats all JSON responses with indentation
 app.set('json spaces', 2);
+
+// GitHub Error Reporting Middleware (must be before routes)
+app.use(githubErrorReporting.errorMiddleware());
 
 // -----------------------------------------------------------------------------
 // DATABASE CONFIGURATION & CONNECTION
@@ -43,6 +63,13 @@ sql.connect(dbConfig).then(pool => {
     console.log('Connected to H10CM Multi-Tenant Database');
     app.locals.db = pool; // Main database connection
     app.locals.h10cmDb = pool; // Same connection for backward compatibility
+    
+    // Initialize audit logger with database connection
+    app.locals.auditLogger = new AuditLogger(pool);
+    console.log('✅ Audit logging system initialized');
+    
+    // Add audit middleware for API call logging
+    app.use(auditMiddleware(app.locals.auditLogger));
 }).catch(err => {
     console.error('Database Connection Failed!', err);
 });
@@ -51,7 +78,7 @@ sql.connect(dbConfig).then(pool => {
 // AUTHENTICATION & AUTHORIZATION MIDDLEWARE
 // -----------------------------------------------------------------------------
 
-const DEFAULT_USER_CERT = "MIIFRDCCBCygAwIBAgIDBnVHMA0GCSqGSIb3DQEBCwUAMFoxCzAJBgNVBAYTAlVTMRgwFgYDVQQKEw9VLlMuIEdvdmVybm1lbnQxDDAKBgNVBAsTA0RvRDEMMAoGA1UECxMDUEtJMRUwEwYDVQQDEwxET0QgSUQgQ0EtNzMwHhcNMjQwNzA5MDAwMDAwWhcNMjcwNzA4MjM1OTU5WjB/MQswCQYDVQQGEwJVUzEYMBYGA1UEChMPVS5TLiBHb3Zlcm5tZW50MQwwCgYDVQQLEwNEb0QxDDAKBgNVBAsTA1BLSTEMMAoGA1UECxMDVVNOMSwwKgYDVQQDEyNET1VHSEVSVFkuSlVTVElOLk1JQ0hBRUwuMTI1MDIyNzIyODCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJ98y7xGmNrfVUtSA85i9EzyFfzpWLZvQfWv3KMvE9tdvjYLpi9wf1Mm440NZSdsn+VBSruZyb7s7EWa9Jiw19A4AsHHTm0PDUmIt5WbGPcXsszc/6eL/VEsR2V/gp5mhl96Az5ct/fMIslFhh5UX+H7ma8K56Hwir1vIc/Be80fQBulMwzGHz0vWOyQ0AWDtLWf6VdpYJV+Vjv0SC+H3pgIbEZL91Vwwmd1i8PzHi5BojfQIhI64IQuKqyPcZrLgmA3trNpHPJP8hdw4fe8I+N6TAjH/NkaB2BICis5pIbnmlrUyac60jr9qtavfBNfjtHTC9NQtQSv7+oQzMvqL5kCAwEAAaOCAewwggHoMB8GA1UdIwQYMBaAFOkhe/IUbzhViHqgUAmekXIcS9k7MDcGA1UdHwQwMC4wLKAqoCiGJmh0dHA6Ly9jcmwuZGlzYS5taWwvY3JsL0RPRElEQ0FfNzMuY3JsMA4GA1UdDwEB/wQEAwIHgDAkBgNVHSAEHTAbMAsGCWCGSAFlAgELKjAMBgpghkgBZQMCAQMNMB0GA1UdDgQWBBTjksZ1APK0JkryT88aMZw9hGjSvDBlBggrBgEFBQcBAQRZMFcwMwYIKwYBBQUHMAKGJ2h0dHA6Ly9jcmwuZGlzYS5taWwvc2lnbi9ET0RJRENBXzczLmNlcjAgBggrBgEFBQcwAYYUaHR0cDovL29jc3AuZGlzYS5taWwwgYgGA1UdEQSBgDB+oCcGCGCGSAFlAwYGoBsEGdT4ENs8CGwUVIGtg2DaCKhQjiEChDgQo/OgJAYKkwYBBAGCNxQCA6AWDBQxMjUwMjI3MjI4MTE3MDAyQG1pbIYtdXJuOnV1aWQ6QTQ4NkZFRTctNDE4NS00NTAyLUEzOTQtRDVERUNDRUJBNkUzMBsGA1UdCQQUMBIwEAYIKwYBBQUHCQQxBBMCVVMwKAYDVR0lBCEwHwYKKwYBBAGCNxQCAgYIKwYBBQUHAwIGBysGAQUCAwQwDQYJKoZIhvcNAQELBQADggEBAFc6ZODAlHhmEInPE9vnPpGOYBaFhQ06RDDxft3UDKn9oxB0gxogFAs/5kMIJE+wn9mjazLH/B2VnizUfXarFZcPCP3aziNeVAWH/ZjqMq8PxUvV1PJdVxVJu1cU6XberkTs5dgHNSlAb39Qdl/OQANERHa1pUdCgHscIeGl2TrvprzXD3zf0WsFI57hNeil6KUazf3u3pXuN2P00cv3ryEOw7CzC2IO0Q61Yn/vAjCprVh3IhoIkF0yPrYhUiP5qqTLyhynDynnDYwbnt/ZGQYaLiC+gNFxZwkQJtGHVXlb7WOW0zRZI3QaBSielwK1eawfdq/J2SCtT3YHriwKeaI=";
+const DEFAULT_USER_CERT = process.env.DEFAULT_USER_CERT || "development-fallback";
 
 // Development fallback certificate for testing without real certs
 const DEFAULT_DEVELOPMENT_CERT = "development-fallback";
@@ -65,7 +92,7 @@ const authenticateUser = async (req, res, next) => {
         }
 
         // Get certificate from header or use development fallback
-        const clientCert = req.headers['x-arr-clientcert'] || DEFAULT_DEVELOPMENT_CERT;
+        const clientCert = req.headers['x-arr-clientcert'] || DEFAULT_USER_CERT;
         
         // Extract certificate subject (simplified for this example)
         const certSubject = extractCertificateSubject(clientCert);
@@ -76,6 +103,21 @@ const authenticateUser = async (req, res, next) => {
             .execute('usp_GetUserWithProgramAccess');
 
         if (userResult.recordset.length === 0) {
+            // Log failed authentication attempt
+            if (req.app.locals.auditLogger) {
+                try {
+                    await req.app.locals.auditLogger.logAuthentication(
+                        null, // No user_id for failed auth
+                        'LOGIN_FAILED',
+                        false,
+                        getClientIP(req),
+                        getUserAgent(req),
+                        { certificate_subject: certSubject, reason: 'User not found' }
+                    );
+                } catch (auditError) {
+                    console.warn('Failed to log authentication failure:', auditError);
+                }
+            }
             return res.status(401).json({ error: 'User not found or not authorized' });
         }
 
@@ -87,6 +129,26 @@ const authenticateUser = async (req, res, next) => {
         
         // Attach user info to request
         req.user = user;
+        
+        // Log successful authentication
+        if (req.app.locals.auditLogger) {
+            try {
+                await req.app.locals.auditLogger.logAuthentication(
+                    user.user_id,
+                    'LOGIN',
+                    true,
+                    getClientIP(req),
+                    getUserAgent(req),
+                    { 
+                        certificate_subject: certSubject,
+                        program_count: user.accessible_programs.length,
+                        is_admin: user.is_system_admin
+                    }
+                );
+            } catch (auditError) {
+                console.warn('Failed to log successful authentication:', auditError);
+            }
+        }
         
         next();
     } catch (error) {
@@ -139,7 +201,7 @@ const checkProgramAccess = (requiredLevel = 'Read') => {
 // Helper function to extract certificate subject (simplified)
 const extractCertificateSubject = (cert) => {
     // If using development fallback, return Justin's admin subject for development
-    if (cert === DEFAULT_DEVELOPMENT_CERT) {
+    if (cert === DEFAULT_DEVELOPMENT_CERT || cert === DEFAULT_USER_CERT) {
         return "CN=DOUGHERTY.JUSTIN.MICHAEL.1250227228,OU=USN,OU=PKI,OU=DoD,O=U.S. Government,C=US";
     }
     
@@ -186,6 +248,15 @@ const executeQuery = async (req, res, query, params = []) => {
         
     } catch (error) {
         console.error('Error executing query:', error);
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: req.originalUrl,
+            errorLocation: 'executeQuery_function',
+            procedureName: procedureName,
+            queryParams: params
+        });
+        
         res.setHeader('Content-Type', 'application/json');
         res.status(500).json({ error: error.message });
     }
@@ -257,6 +328,45 @@ const executeProcedure = async (res, procedureName, params = []) => {
     } catch (error) {
         console.error(`Error executing procedure ${procedureName}:`, error);
         res.setHeader('Content-Type', 'application/json');
+        
+        // Handle specific database constraint violations for better UX
+        if (error.message) {
+            // Handle duplicate key constraint (project names must be unique within a program)
+            if (error.message.includes('UQ_Projects_Name_Program') || 
+                error.message.includes('Cannot insert duplicate key')) {
+                return res.status(409).send(JSON.stringify({ 
+                    error: {
+                        ErrorMessage: "A project with this name already exists in this program. Please choose a different name.",
+                        type: 'duplicate_key',
+                        constraint: 'unique_project_name_per_program',
+                        field: 'project_name'
+                    }
+                }, null, 2));
+            }
+            
+            // Handle other unique constraint violations
+            if (error.message.includes('UNIQUE KEY constraint') || error.message.includes('duplicate key')) {
+                return res.status(409).send(JSON.stringify({ 
+                    error: {
+                        ErrorMessage: "This entry conflicts with an existing record. Please check your data and try again.",
+                        type: 'duplicate_key',
+                        originalError: error.message
+                    }
+                }, null, 2));
+            }
+            
+            // Handle foreign key constraint violations
+            if (error.message.includes('FOREIGN KEY constraint')) {
+                return res.status(400).send(JSON.stringify({ 
+                    error: {
+                        ErrorMessage: "Referenced data does not exist. Please check your selections and try again.",
+                        type: 'foreign_key_violation',
+                        originalError: error.message
+                    }
+                }, null, 2));
+            }
+        }
+        
         res.status(500).send(JSON.stringify({ error: { ErrorMessage: "An internal server error occurred.", details: error.message } }, null, 2));
     }
 };
@@ -277,8 +387,17 @@ app.get("/api/auth/me", authenticateUser, (req, res) => {
   //console.log("Headers received:", JSON.stringify(req.headers, null, 2));
 
   const clientCert = req.headers['x-arr-clientcert'] || DEFAULT_USER_CERT;
+  
+  // Extract readable certificate subject instead of raw certificate data
+  const certSubject = extractCertificateSubject(clientCert);
+  
+  // Create safe headers object without the full certificate
+  const safeHeaders = { ...req.headers };
+  if (safeHeaders['x-arr-clientcert']) {
+    safeHeaders['x-arr-clientcert'] = `[CERTIFICATE_PRESENT_${safeHeaders['x-arr-clientcert'].length}_BYTES]`;
+  }
 
-  res.json({
+  const userData = {
     user: {
       user_id: req.user.user_id,
       username: req.user.user_name,
@@ -287,15 +406,12 @@ app.get("/api/auth/me", authenticateUser, (req, res) => {
       program_access: req.user.program_access,
       accessible_programs: req.user.accessible_programs,
       certificateInfo: {
-        subject: clientCert,
+        subject: certSubject,
         issuer: req.headers['x-arr-ssl'] || "",
         serialNumber: ""
       }
     },
-    headers: {
-      ...req.headers,
-      'x-arr-clientcert': clientCert
-    },
+    headers: safeHeaders,
     extractedFrom: req.headers['x-arr-clientcert'] ? 'certificate' : 'fallback',
     request: {
       ip: req.headers['x-forwarded-for'] || req.ip,
@@ -304,7 +420,11 @@ app.get("/api/auth/me", authenticateUser, (req, res) => {
       protocol: req.protocol,
       secure: req.secure
     }
-  });
+  };
+
+  // Return user data directly (not wrapped in standardized response format)
+  // This endpoint needs to maintain compatibility with frontend expectations
+  return res.json(userData);
 });
 
 // =============================================================================
@@ -316,7 +436,7 @@ app.get('/api/programs', async (req, res) => {
     try {
         const pool = req.app.locals.db;
         if (!pool) {
-            return res.status(500).json({ error: 'Database not connected' });
+            return res.errorResponse('Database not connected', { type: 'database_connection' }, 500);
         }
 
         // Check if any programs exist first
@@ -327,34 +447,50 @@ app.get('/api/programs', async (req, res) => {
         
         if (!hasPrograms) {
             // No programs exist, allow unauthenticated access for initial setup
-            return res.json([]);
+            return res.successResponse([], 'No programs exist - initial setup mode active');
         }
 
         // Programs exist, check for certificate authentication
         const clientCert = req.headers['x-arr-clientcert'];
         if (!clientCert) {
             // No certificate provided, require authentication
-            return res.status(401).json({ error: 'Authentication required' });
+            return res.unauthorized('Authentication required');
         }
 
-        // Use authenticateUser middleware to authenticate
-        authenticateUser(req, res, async () => {
-            try {
-                // Authentication successful, proceed with stored procedure
-                const result = await pool.request()
-                    .input('RequestingUserId', sql.Int, req.user ? req.user.user_id : null)
-                    .input('IsSystemAdmin', sql.Bit, req.user ? req.user.is_system_admin : false)
-                    .execute('usp_GetAllPrograms');
-                    
-                res.json(result.recordset);
-            } catch (error) {
-                console.error('Error getting programs:', error);
-                res.status(500).json({ error: 'Failed to get programs' });
+        // Authenticate the user first
+        try {
+            // Get certificate from header or use development fallback
+            const certSubject = extractCertificateSubject(clientCert);
+            
+            // Use stored procedure for secure user lookup
+            const userResult = await pool.request()
+                .input('CertificateSubject', sql.NVarChar, certSubject)
+                .execute('usp_GetUserWithProgramAccess');
+
+            if (userResult.recordset.length === 0) {
+                return res.status(401).json({ error: 'User not found or not authorized' });
             }
-        });
+
+            const user = userResult.recordset[0];
+            
+            // Parse program access JSON
+            user.program_access = user.program_access ? JSON.parse(user.program_access) : [];
+            user.accessible_programs = user.program_access.map(p => p.program_id);
+            
+            // Authentication successful, proceed with stored procedure
+            const result = await pool.request()
+                .input('RequestingUserId', sql.Int, user.user_id)
+                .input('IsSystemAdmin', sql.Bit, user.is_system_admin)
+                .execute('usp_GetAllPrograms');
+                
+            return res.successResponse(result.recordset, 'Programs retrieved successfully');
+        } catch (authError) {
+            console.error('Authentication error in programs endpoint:', authError);
+            return res.status(401).json({ error: 'Authentication failed' });
+        }
     } catch (error) {
         console.error('Error getting programs:', error);
-        res.status(500).json({ error: 'Failed to get programs' });
+        return res.databaseError(error, 'retrieve programs');
     }
 });
 
@@ -363,7 +499,7 @@ app.post('/api/programs', async (req, res) => {
     try {
         const pool = req.app.locals.db;
         if (!pool) {
-            return res.status(500).json({ error: 'Database not connected' });
+            return res.errorResponse('Database not connected', { type: 'database_connection' }, 500);
         }
 
         // Check if any programs exist
@@ -376,7 +512,7 @@ app.post('/api/programs', async (req, res) => {
             // Programs exist, require authentication
             return authenticateUser(req, res, async () => {
                 if (!req.user.is_system_admin) {
-                    return res.status(403).json({ error: 'System Admin access required' });
+                    return res.forbidden('System Admin access required');
                 }
                 await createProgramLogic(req, res, pool);
             });
@@ -386,14 +522,14 @@ app.post('/api/programs', async (req, res) => {
         }
     } catch (error) {
         console.error('Error in create program endpoint:', error);
-        res.status(500).json({ error: 'Failed to process request' });
+        return res.databaseError(error, 'process program creation request');
     }
 });
 
 // POST grant program access to user (System Admin only)
 app.post('/api/programs/:programId/access', authenticateUser, async (req, res) => {
     if (!req.user.is_system_admin) {
-        return res.status(403).json({ error: 'System Admin access required' });
+        return res.forbidden('System Admin access required');
     }
     
     const { user_id, access_level } = req.body;
@@ -403,7 +539,7 @@ app.post('/api/programs/:programId/access', authenticateUser, async (req, res) =
         { name: 'AccessLevel', type: sql.NVarChar, value: access_level },
         { name: 'GrantedBy', type: sql.Int, value: req.user.user_id }
     ];
-    await executeProcedure(res, 'usp_GrantProgramAccess', params);
+    await executeProcedureStandardized(res, 'usp_GrantProgramAccess', params, 'Program access granted successfully');
 });
 
 // GET users with their program access (conditional authentication for initial setup)
@@ -411,7 +547,7 @@ app.get('/api/users', async (req, res) => {
     try {
         const pool = req.app.locals.db;
         if (!pool) {
-            return res.status(500).json({ error: 'Database not connected' });
+            return res.errorResponse('Database not connected', { type: 'database_connection' }, 500);
         }
 
         // Check if any system admins exist
@@ -424,7 +560,7 @@ app.get('/api/users', async (req, res) => {
             // Admins exist, require authentication
             return authenticateUser(req, res, async () => {
                 if (!req.user.is_system_admin) {
-                    return res.status(403).json({ error: 'System Admin access required' });
+                    return res.forbidden('System Admin access required');
                 }
                 await getUsersLogic(req, res, pool);
             });
@@ -434,7 +570,14 @@ app.get('/api/users', async (req, res) => {
         }
     } catch (error) {
         console.error('Error in users endpoint:', error);
-        res.status(500).json({ error: 'Failed to get users' });
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/users',
+            errorLocation: 'outer_catch_block'
+        });
+        
+        return res.databaseError(error, 'fetch users');
     }
 });
 
@@ -468,18 +611,53 @@ app.get('/api/projects', authenticateUser, async (req, res) => {
             projects = projects.filter(project => req.user.accessible_programs.includes(project.program_id));
         }
         
-        res.json(projects);
+        // Return projects data directly (not wrapped in standardized response format)
+        // This endpoint needs to maintain compatibility with frontend expectations
+        return res.json(projects);
     } catch (error) {
         console.error('Error in /api/projects:', error);
-        res.status(500).json({ error: 'Failed to get projects.' });
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/projects',
+            errorLocation: 'get_projects_endpoint',
+            programFilter: req.query.program_id,
+            userRole: req.user.is_system_admin ? 'admin' : 'user'
+        });
+        
+        return res.status(500).json({ error: 'Failed to retrieve projects' });
     }
 });
 
 // GET a single project by ID (with program access check)
 app.get('/api/projects/:id', authenticateUser, async (req, res) => {
     try {
+        // Validate project ID parameter
+        const projectIdParam = req.params.id;
+        
+        // Check for malformed URL parameters (like :12 instead of 12)
+        if (typeof projectIdParam === 'string' && projectIdParam.startsWith(':')) {
+            return res.status(400).json({ 
+                error: 'Invalid project ID format. Expected numeric ID, received route parameter placeholder.',
+                received: projectIdParam,
+                expected: 'numeric value (e.g., 12)',
+                help: 'Use /api/projects/12 instead of /api/projects/:12'
+            });
+        }
+        
+        const projectId = parseInt(projectIdParam);
+        
+        // Validate that the parsed ID is a valid number
+        if (isNaN(projectId) || projectId <= 0) {
+            return res.status(400).json({ 
+                error: 'Invalid project ID. Must be a positive integer.',
+                received: projectIdParam,
+                parsed: projectId
+            });
+        }
+        
         const projectDetailsJson = JSON.stringify({
-            project_id: parseInt(req.params.id)
+            project_id: projectId
         });
         
         const pool = req.app.locals.db;
@@ -489,20 +667,29 @@ app.get('/api/projects/:id', authenticateUser, async (req, res) => {
         const result = await request.execute('usp_GetProjectDetails');
         
         if (result.recordset.length === 0) {
-            return res.status(404).json({ error: 'Project not found' });
+            return res.notFound('Project');
         }
         
         const project = result.recordset[0];
         
         // Check program access for non-admin users
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
-            return res.status(403).json({ error: 'Access denied to this project' });
+            return res.forbidden('Access denied to this project');
         }
         
-        res.json(project);
+        return res.successResponse(project, 'Project details retrieved successfully');
     } catch (error) {
         console.error('Error getting project:', error);
-        res.status(500).json({ error: 'Failed to get project' });
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/projects/:id',
+            errorLocation: 'get_project_by_id_endpoint',
+            projectId: req.params.id,
+            userRole: req.user.is_system_admin ? 'admin' : 'user'
+        });
+        
+        return res.databaseError(error, 'retrieve project details');
     }
 });
 
@@ -523,14 +710,14 @@ app.get('/api/projects/:id/steps', authenticateUser, async (req, res) => {
         const projectResult = await projectRequest.execute('usp_GetProjectForAccess');
         
         if (projectResult.recordset.length === 0) {
-            return res.status(404).json({ error: 'Project not found' });
+            return res.notFound('Project');
         }
         
         const project = projectResult.recordset[0];
         
         // Check program access for non-admin users
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
-            return res.status(403).json({ error: 'Access denied to this project' });
+            return res.forbidden('Access denied to this project');
         }
         
         // Get project steps using the stored procedure
@@ -541,14 +728,16 @@ app.get('/api/projects/:id/steps', authenticateUser, async (req, res) => {
         
         // Return the steps in the format expected by the frontend
         // Even if no steps are found, return an empty array instead of 404
-        res.json({
+        const responseData = {
             data: stepsResult.recordset || [],
             project_id: projectId,
             project_name: project.project_name
-        });
+        };
+        
+        return res.successResponse(responseData, 'Project steps retrieved successfully');
     } catch (error) {
         console.error('Error getting project steps:', error);
-        res.status(500).json({ error: 'Failed to get project steps' });
+        return res.databaseError(error, 'retrieve project steps');
     }
 });
 
@@ -569,14 +758,14 @@ app.get('/api/projects/:id/tracked-items', authenticateUser, async (req, res) =>
         const projectResult = await projectRequest.execute('usp_GetProjectForAccess');
         
         if (projectResult.recordset.length === 0) {
-            return res.status(404).json({ error: 'Project not found' });
+            return res.notFound('Project');
         }
         
         const project = projectResult.recordset[0];
         
         // Check program access for non-admin users
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
-            return res.status(403).json({ error: 'Access denied to this project' });
+            return res.forbidden('Access denied to this project');
         }
         
         // Get tracked items using secure stored procedure
@@ -610,10 +799,10 @@ app.get('/api/projects/:id/tracked-items', authenticateUser, async (req, res) =>
         });
         
         // Return the tracked items in the format expected by the frontend
-        res.json({ data: transformedItems });
+        return res.successResponse({ data: transformedItems }, 'Tracked items retrieved successfully');
     } catch (error) {
         console.error('Error getting tracked items:', error);
-        res.status(500).json({ error: 'Failed to get tracked items' });
+        return res.databaseError(error, 'retrieve tracked items');
     }
 });
 
@@ -634,14 +823,14 @@ app.get('/api/projects/:id/attributes', authenticateUser, async (req, res) => {
         const projectResult = await projectRequest.execute('usp_GetProjectForAccess');
         
         if (projectResult.recordset.length === 0) {
-            return res.status(404).json({ error: 'Project not found' });
+            return res.notFound('Project');
         }
         
         const project = projectResult.recordset[0];
         
         // Check program access for non-admin users
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
-            return res.status(403).json({ error: 'Access denied to this project' });
+            return res.forbidden('Access denied to this project');
         }
         
         // Get project attributes using secure stored procedure
@@ -655,10 +844,10 @@ app.get('/api/projects/:id/attributes', authenticateUser, async (req, res) => {
         const attributesResult = await attributesRequest.execute('usp_GetProjectAttributes');
         
         // Return the attributes in the format expected by the frontend
-        res.json(attributesResult.recordset || []);
+        return res.successResponse(attributesResult.recordset || [], 'Project attributes retrieved successfully');
     } catch (error) {
         console.error('Error getting project attributes:', error);
-        res.status(500).json({ error: 'Failed to get project attributes' });
+        return res.databaseError(error, 'retrieve project attributes');
     }
 });
 
@@ -668,26 +857,29 @@ app.post('/api/attributes', authenticateUser, async (req, res) => {
         const {
             project_id,
             attribute_name,
-            attribute_value,
             attribute_type,
             is_required,
-            display_order
+            is_auto_generated,
+            display_order,
+            default_value,
+            validation_rules
         } = req.body;
         
         // Validate required fields
         if (!project_id || !attribute_name) {
-            return res.status(400).json({ error: 'Missing required fields: project_id, attribute_name' });
+            return res.validationError('Missing required fields: project_id, attribute_name');
         }
         
-        // Use secure stored procedure for attribute creation
+        // Use secure stored procedure for attribute definition creation
         const attributeJson = JSON.stringify({
             project_id: parseInt(project_id),
             attribute_name: attribute_name,
-            attribute_value: attribute_value || '',
             attribute_type: attribute_type || 'text',
             is_required: is_required || false,
+            is_auto_generated: is_auto_generated || false,
             display_order: display_order || null,
-            created_by: req.user.user_id
+            default_value: default_value || null,
+            validation_rules: validation_rules || null
         });
         
         const pool = req.app.locals.db;
@@ -697,14 +889,14 @@ app.post('/api/attributes', authenticateUser, async (req, res) => {
         const result = await request.execute('usp_CreateProjectAttribute');
         
         if (result.recordset.length === 0) {
-            return res.status(500).json({ error: 'Failed to create attribute' });
+            return res.errorResponse('Failed to create attribute definition', { type: 'creation_failed' }, 500);
         }
         
-        // Return the created attribute
-        res.status(201).json(result.recordset[0]);
+        // Return the created attribute definition
+        return res.successResponse(result.recordset[0], 'Attribute definition created successfully');
     } catch (error) {
-        console.error('Error creating attribute:', error);
-        res.status(500).json({ error: 'Failed to create attribute' });
+        console.error('Error creating attribute definition:', error);
+        return res.databaseError(error, 'create attribute definition');
     }
 });
 
@@ -715,7 +907,7 @@ app.post('/api/projects', authenticateUser, checkProgramAccess('Write'), async (
     req.body.created_by = req.user.user_id;
     
     const params = [{ name: 'ProjectJson', type: sql.NVarChar, value: JSON.stringify(req.body) }];
-    await executeProcedure(res, 'usp_SaveProject', params);
+    await executeProcedureStandardized(res, 'usp_SaveProject', params, 'Project created successfully');
 });
 
 // PUT (Update) an existing project (with program access validation)
@@ -728,7 +920,7 @@ app.put('/api/projects/:id', authenticateUser, async (req, res) => {
             .execute('usp_GetProjectForValidation');
             
         if (checkResult.recordset.length === 0) {
-            return res.status(404).json({ error: 'Project not found' });
+            return res.notFound('Project');
         }
         
         const existingProject = checkResult.recordset[0];
@@ -737,14 +929,14 @@ app.put('/api/projects/:id', authenticateUser, async (req, res) => {
         
         // Check program access
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(projectProgramId)) {
-            return res.status(403).json({ error: 'Access denied to this project' });
+            return res.forbidden('Access denied to this project');
         }
         
         // Check write access level
         if (!req.user.is_system_admin) {
             const programAccess = req.user.program_access.find(p => p.program_id === projectProgramId);
             if (!programAccess || programAccess.access_level === 'Read') {
-                return res.status(403).json({ error: 'Write access required to update projects' });
+                return res.forbidden('Write access required to update projects');
             }
         }
         
@@ -764,10 +956,10 @@ app.put('/api/projects/:id', authenticateUser, async (req, res) => {
         console.log('Request body before sending to stored procedure:', JSON.stringify(req.body, null, 2));
         
         const params = [{ name: 'ProjectJson', type: sql.NVarChar, value: JSON.stringify(req.body) }];
-        await executeProcedure(res, 'usp_SaveProject', params);
+        await executeProcedureStandardized(res, 'usp_SaveProject', params, 'Project updated successfully');
     } catch (error) {
         console.error('Error updating project:', error);
-        res.status(500).json({ error: 'Failed to update project' });
+        return res.databaseError(error, 'update project');
     }
 });
 
@@ -798,45 +990,44 @@ app.delete('/api/projects/:id', authenticateUser, async (req, res) => {
             return res.status(403).json({ error: 'Write access required to delete projects' });
         }
         
-        // Start a transaction to handle cascade delete properly
-        const transaction = new sql.Transaction(app.locals.db);
-        await transaction.begin();
+        // Build JSON parameter for stored procedure
+        const projectJson = {
+            project_id: projectId,
+            program_id: project.program_id,
+            deleted_by: req.user.user_id
+        };
         
-        try {
-            // First, delete any pending orders associated with this project
-            console.log(`🗑️ Deleting pending orders for project ${projectId}...`);
-            const deletePendingOrdersResult = await new sql.Request(transaction)
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM PendingOrders WHERE project_id = @project_id');
+        console.log('Deleting project with data:', JSON.stringify(projectJson, null, 2));
+        
+        // Execute the secure stored procedure
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('ProjectJson', sql.NVarChar, JSON.stringify(projectJson));
+        
+        const result = await request.execute('usp_DeleteProject');
+        
+        // Return the result from the stored procedure
+        if (result.recordset && result.recordset.length > 0) {
+            const deletionResult = result.recordset[0];
             
-            console.log(`🗑️ Deleted ${deletePendingOrdersResult.rowsAffected[0]} pending orders for project ${projectId}`);
-            
-            // Then delete the project itself
-            console.log(`🗑️ Deleting project ${projectId}...`);
-            const deleteProjectResult = await new sql.Request(transaction)
-                .input('project_id', sql.Int, projectId)
-                .query('DELETE FROM Projects WHERE project_id = @project_id');
-            
-            if (deleteProjectResult.rowsAffected[0] === 0) {
-                await transaction.rollback();
-                return res.status(404).json({ error: 'Project not found or already deleted' });
+            if (deletionResult.status === 'SUCCESS') {
+                console.log(`✅ ${deletionResult.message} by user ${req.user.user_id}`);
+                res.json({
+                    success: true,
+                    message: deletionResult.message,
+                    project_id: deletionResult.project_id,
+                    deleted_tasks: deletionResult.deleted_tasks,
+                    deleted_steps: deletionResult.deleted_steps,
+                    deleted_tracked_items: deletionResult.deleted_tracked_items,
+                    deleted_attributes: deletionResult.deleted_attributes,
+                    deleted_pending_orders: deletionResult.deleted_pending_orders
+                });
+            } else {
+                console.log(`❌ ${deletionResult.message} for user ${req.user.user_id}`);
+                res.status(400).json({ error: deletionResult.message });
             }
-            
-            // Commit the transaction
-            await transaction.commit();
-            
-            console.log(`✅ Project "${project.project_name}" (ID: ${projectId}) and related data deleted by user ${req.user.user_id}`);
-            
-            res.json({ 
-                success: true, 
-                message: `Project "${project.project_name}" and ${deletePendingOrdersResult.rowsAffected[0]} related pending orders have been successfully deleted`,
-                project_id: projectId,
-                deleted_pending_orders: deletePendingOrdersResult.rowsAffected[0]
-            });
-            
-        } catch (transactionError) {
-            await transaction.rollback();
-            throw transactionError;
+        } else {
+            res.status(500).json({ error: 'Failed to delete project - no result returned' });
         }
         
     } catch (error) {
@@ -897,22 +1088,22 @@ app.put('/api/steps/:id', authenticateUser, async (req, res) => {
     try {
         console.log('Updating project step:', req.params.id, req.body);
         
-        // Verify user has access to the project's program
+        // Verify user has access to the project's program using secure stored procedure
         const pool = req.app.locals.db;
-        const stepCheck = await pool.request()
-            .input('step_id', sql.Int, req.params.id)
-            .query(`
-                SELECT ps.project_id, p.program_id 
-                FROM ProjectSteps ps
-                JOIN Projects p ON ps.project_id = p.project_id
-                WHERE ps.step_id = @step_id
-            `);
+        const stepValidationJson = JSON.stringify({
+            step_id: parseInt(req.params.id)
+        });
+        
+        const stepCheckRequest = pool.request();
+        stepCheckRequest.input('StepValidationJson', sql.NVarChar, stepValidationJson);
+        
+        const stepCheckResult = await stepCheckRequest.execute('usp_GetProjectStepForValidation');
             
-        if (stepCheck.recordset.length === 0) {
+        if (stepCheckResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project step not found' });
         }
         
-        const stepData = stepCheck.recordset[0];
+        const stepData = stepCheckResult.recordset[0];
         const projectProgramId = stepData.program_id;
         
         // Check program access
@@ -948,21 +1139,21 @@ app.delete('/api/steps/:id', authenticateUser, async (req, res) => {
     try {
         const stepId = parseInt(req.params.id);
         
-        // First, verify the step exists and check user permissions
-        const stepCheck = await new sql.Request(app.locals.db)
-            .input('step_id', sql.Int, stepId)
-            .query(`
-                SELECT ps.step_name, ps.project_id, p.program_id 
-                FROM ProjectSteps ps
-                JOIN Projects p ON ps.project_id = p.project_id
-                WHERE ps.step_id = @step_id
-            `);
+        // Get step information using secure stored procedure
+        const stepValidationJson = JSON.stringify({
+            step_id: stepId
+        });
         
-        if (stepCheck.recordset.length === 0) {
+        const stepCheckRequest = new sql.Request(app.locals.db);
+        stepCheckRequest.input('StepValidationJson', sql.NVarChar, stepValidationJson);
+        
+        const stepCheckResult = await stepCheckRequest.execute('usp_GetProjectStepForValidation');
+        
+        if (stepCheckResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project step not found' });
         }
         
-        const step = stepCheck.recordset[0];
+        const step = stepCheckResult.recordset[0];
         
         // Check if user has write access to this program
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(step.program_id)) {
@@ -975,22 +1166,25 @@ app.delete('/api/steps/:id', authenticateUser, async (req, res) => {
             return res.status(403).json({ error: 'Write access required to delete project steps' });
         }
         
-        // Delete the project step
-        const deleteStepResult = await new sql.Request(app.locals.db)
-            .input('step_id', sql.Int, stepId)
-            .query('DELETE FROM ProjectSteps WHERE step_id = @step_id');
-        
-        if (deleteStepResult.rowsAffected[0] === 0) {
-            return res.status(404).json({ error: 'Project step not found or already deleted' });
-        }
-        
-        console.log(`✅ Project step "${step.step_name}" (ID: ${stepId}) deleted by user ${req.user.user_id}`);
-        
-        res.json({ 
-            success: true, 
-            message: `Project step "${step.step_name}" has been successfully deleted`,
-            step_id: stepId
+        // Delete the project step using secure stored procedure
+        const stepDeleteJson = JSON.stringify({
+            step_id: stepId,
+            program_id: step.program_id,
+            deleted_by: req.user.user_id
         });
+        
+        const deleteRequest = new sql.Request(app.locals.db);
+        deleteRequest.input('StepDeleteJson', sql.NVarChar, stepDeleteJson);
+        
+        const deleteResult = await deleteRequest.execute('usp_DeleteProjectStep');
+        
+        if (deleteResult.recordset && deleteResult.recordset.length > 0) {
+            const deletionResult = deleteResult.recordset[0];
+            console.log(`✅ ${deletionResult.message} by user ${req.user.user_id}`);
+            res.json(deletionResult);
+        } else {
+            res.status(500).json({ error: 'Failed to delete project step - no result returned' });
+        }
         
     } catch (error) {
         console.error('Error deleting project step:', error);
@@ -1007,22 +1201,22 @@ app.post('/api/inventory-requirements', authenticateUser, async (req, res) => {
     try {
         console.log('Creating step inventory requirement:', req.body);
         
-        // Verify user has access to the step's project's program
+        // Verify user has access to the step's project's program using secure stored procedure
         const pool = req.app.locals.db;
-        const stepCheck = await pool.request()
-            .input('step_id', sql.Int, req.body.step_id)
-            .query(`
-                SELECT ps.project_id, p.program_id 
-                FROM ProjectSteps ps
-                JOIN Projects p ON ps.project_id = p.project_id
-                WHERE ps.step_id = @step_id
-            `);
+        const stepValidationJson = JSON.stringify({
+            step_id: parseInt(req.body.step_id)
+        });
+        
+        const stepCheckRequest = pool.request();
+        stepCheckRequest.input('StepValidationJson', sql.NVarChar, stepValidationJson);
+        
+        const stepCheckResult = await stepCheckRequest.execute('usp_GetProjectStepForValidation');
             
-        if (stepCheck.recordset.length === 0) {
+        if (stepCheckResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project step not found' });
         }
         
-        const stepData = stepCheck.recordset[0];
+        const stepData = stepCheckResult.recordset[0];
         const projectProgramId = stepData.program_id;
         
         // Check program access
@@ -1053,23 +1247,22 @@ app.put('/api/inventory-requirements/:id', authenticateUser, async (req, res) =>
     try {
         console.log('Updating step inventory requirement:', req.params.id, req.body);
         
-        // Verify user has access to the step's project's program
+        // Verify user has access to the step's project's program using secure stored procedure
         const pool = req.app.locals.db;
-        const reqCheck = await pool.request()
-            .input('requirement_id', sql.Int, req.params.id)
-            .query(`
-                SELECT sir.step_id, ps.project_id, p.program_id 
-                FROM StepInventoryRequirements sir
-                JOIN ProjectSteps ps ON sir.step_id = ps.step_id
-                JOIN Projects p ON ps.project_id = p.project_id
-                WHERE sir.requirement_id = @requirement_id
-            `);
+        const requirementValidationJson = JSON.stringify({
+            requirement_id: parseInt(req.params.id)
+        });
+        
+        const reqCheckRequest = pool.request();
+        reqCheckRequest.input('RequirementValidationJson', sql.NVarChar, requirementValidationJson);
+        
+        const reqCheckResult = await reqCheckRequest.execute('usp_GetStepInventoryRequirementForValidation');
             
-        if (reqCheck.recordset.length === 0) {
+        if (reqCheckResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Step inventory requirement not found' });
         }
         
-        const reqData = reqCheck.recordset[0];
+        const reqData = reqCheckResult.recordset[0];
         const projectProgramId = reqData.program_id;
         
         // Check program access
@@ -1104,23 +1297,21 @@ app.delete('/api/inventory-requirements/:id', authenticateUser, async (req, res)
     try {
         const requirementId = parseInt(req.params.id);
         
-        // First, verify the requirement exists and check user permissions
-        const reqCheck = await new sql.Request(app.locals.db)
-            .input('requirement_id', sql.Int, requirementId)
-            .query(`
-                SELECT sir.requirement_id, sir.step_id, ps.project_id, p.program_id, ii.item_name
-                FROM StepInventoryRequirements sir
-                JOIN ProjectSteps ps ON sir.step_id = ps.step_id
-                JOIN Projects p ON ps.project_id = p.project_id
-                JOIN InventoryItems ii ON sir.inventory_item_id = ii.inventory_item_id
-                WHERE sir.requirement_id = @requirement_id
-            `);
+        // Get requirement information using secure stored procedure
+        const requirementValidationJson = JSON.stringify({
+            requirement_id: requirementId
+        });
         
-        if (reqCheck.recordset.length === 0) {
+        const reqCheckRequest = new sql.Request(app.locals.db);
+        reqCheckRequest.input('RequirementValidationJson', sql.NVarChar, requirementValidationJson);
+        
+        const reqCheckResult = await reqCheckRequest.execute('usp_GetStepInventoryRequirementForValidation');
+        
+        if (reqCheckResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Step inventory requirement not found' });
         }
         
-        const requirement = reqCheck.recordset[0];
+        const requirement = reqCheckResult.recordset[0];
         
         // Check if user has write access to this program
         if (!req.user.is_system_admin && !req.user.accessible_programs.includes(requirement.program_id)) {
@@ -1133,22 +1324,25 @@ app.delete('/api/inventory-requirements/:id', authenticateUser, async (req, res)
             return res.status(403).json({ error: 'Write access required to delete inventory requirements' });
         }
         
-        // Delete the requirement
-        const deleteResult = await new sql.Request(app.locals.db)
-            .input('requirement_id', sql.Int, requirementId)
-            .query('DELETE FROM StepInventoryRequirements WHERE requirement_id = @requirement_id');
-        
-        if (deleteResult.rowsAffected[0] === 0) {
-            return res.status(404).json({ error: 'Step inventory requirement not found or already deleted' });
-        }
-        
-        console.log(`✅ Step inventory requirement for "${requirement.item_name}" (ID: ${requirementId}) deleted by user ${req.user.user_id}`);
-        
-        res.json({ 
-            success: true, 
-            message: `Step inventory requirement for "${requirement.item_name}" has been successfully deleted`,
-            requirement_id: requirementId
+        // Delete the requirement using secure stored procedure
+        const requirementDeleteJson = JSON.stringify({
+            requirement_id: requirementId,
+            program_id: requirement.program_id,
+            deleted_by: req.user.user_id
         });
+        
+        const deleteRequest = new sql.Request(app.locals.db);
+        deleteRequest.input('RequirementDeleteJson', sql.NVarChar, requirementDeleteJson);
+        
+        const deleteResult = await deleteRequest.execute('usp_DeleteStepInventoryRequirement');
+        
+        if (deleteResult.recordset && deleteResult.recordset.length > 0) {
+            const deletionResult = deleteResult.recordset[0];
+            console.log(`✅ ${deletionResult.message} by user ${req.user.user_id}`);
+            res.json(deletionResult);
+        } else {
+            res.status(500).json({ error: 'Failed to delete step inventory requirement - no result returned' });
+        }
         
     } catch (error) {
         console.error('Error deleting step inventory requirement:', error);
@@ -1313,6 +1507,51 @@ app.post('/api/inventory-items', authenticateUser, async (req, res) => {
     }
 });
 
+// DELETE inventory item (with proper authorization)
+app.delete('/api/inventory-items/:id', authenticateUser, async (req, res) => {
+    try {
+        const inventoryItemId = parseInt(req.params.id);
+        
+        // Get user's program access for multi-tenant validation
+        const userProgram = req.user.program_access && req.user.program_access.length > 0 
+            ? req.user.program_access[0].program_id 
+            : null;
+        
+        if (!userProgram && !req.user.is_system_admin) {
+            return res.status(403).json({ error: 'No program access available' });
+        }
+        
+        // Build JSON parameter for stored procedure
+        const inventoryItemJson = {
+            inventory_item_id: inventoryItemId,
+            program_id: userProgram,
+            deleted_by: req.user.user_id
+        };
+        
+        console.log('Deleting inventory item with data:', JSON.stringify(inventoryItemJson, null, 2));
+        
+        // Execute the stored procedure
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('InventoryItemJson', sql.NVarChar, JSON.stringify(inventoryItemJson));
+        
+        const result = await request.execute('usp_DeleteInventoryItem');
+        
+        // Return the result from the stored procedure
+        if (result.recordset && result.recordset.length > 0) {
+            const deletionResult = result.recordset[0];
+            console.log(`✅ ${deletionResult.message} by user ${req.user.user_id}`);
+            res.json(deletionResult);
+        } else {
+            res.status(500).json({ error: 'Failed to delete inventory item - no result returned' });
+        }
+        
+    } catch (error) {
+        console.error('Error deleting inventory item:', error);
+        res.status(500).json({ error: 'Failed to delete inventory item' });
+    }
+});
+
 // =============================================================================
 // NOTIFICATION ENDPOINTS
 // =============================================================================
@@ -1345,21 +1584,23 @@ app.get('/api/notifications', authenticateUser, async (req, res) => {
 // PUT mark notification as read
 app.put('/api/notifications/:id/read', authenticateUser, async (req, res) => {
     try {
-        const pool = req.app.locals.db;
-        const result = await pool.request()
-            .input('notification_id', sql.Int, req.params.id)
-            .input('user_id', sql.Int, req.user.user_id)
-            .query(`
-                UPDATE Notifications 
-                SET is_read = 1, date_read = GETDATE()
-                WHERE notification_id = @notification_id AND user_id = @user_id
-            `);
-            
-        if (result.rowsAffected[0] === 0) {
-            return res.status(404).json({ error: 'Notification not found' });
-        }
+        const notificationUpdateJson = JSON.stringify({
+            notification_id: parseInt(req.params.id),
+            user_id: req.user.user_id
+        });
         
-        res.json({ message: 'Notification marked as read' });
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('NotificationUpdateJson', sql.NVarChar, notificationUpdateJson);
+        
+        const result = await request.execute('usp_UpdateNotificationSecure');
+        
+        if (result.recordset && result.recordset.length > 0) {
+            const updateResult = result.recordset[0];
+            res.json({ message: updateResult.message });
+        } else {
+            res.status(500).json({ error: 'Failed to update notification' });
+        }
     } catch (error) {
         console.error('Error marking notification as read:', error);
         res.status(500).json({ error: 'Failed to update notification' });
@@ -1449,6 +1690,26 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
         uptime: process.uptime()
     });
+});
+
+// Serve OpenAPI/Swagger specification
+app.get('/api/swagger.yaml', (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const swaggerPath = path.join(__dirname, 'swagger.yaml');
+        
+        if (fs.existsSync(swaggerPath)) {
+            const swaggerContent = fs.readFileSync(swaggerPath, 'utf8');
+            res.set('Content-Type', 'application/x-yaml');
+            res.send(swaggerContent);
+        } else {
+            res.status(404).json({ error: 'Swagger specification not found' });
+        }
+    } catch (error) {
+        console.error('Error serving swagger spec:', error);
+        res.status(500).json({ error: 'Failed to serve swagger specification' });
+    }
 });
 
 app.get('/api/health/db', async (req, res) => {
@@ -1569,10 +1830,12 @@ const getUsersLogic = async (req, res, pool) => {
             .input('IsSystemAdmin', sql.Bit, req.user ? req.user.is_system_admin : false)
             .execute('usp_GetAllUsers');
         
-        res.json(result.recordset);
+        // Return users data directly (not wrapped in standardized response format)
+        // This endpoint needs to maintain compatibility with frontend expectations
+        return res.json(result.recordset);
     } catch (error) {
         console.error('Error getting users:', error);
-        res.status(500).json({ error: 'Failed to get users' });
+        return res.status(500).json({ error: 'Failed to retrieve users' });
     }
 };
 
@@ -1590,18 +1853,16 @@ const createProgramLogic = async (req, res, pool) => {
             .input('CreatedBy', sql.NVarChar, req.user ? req.user.user_name : 'System')
             .input('CreatedByUserId', sql.Int, req.user ? req.user.user_id : null)
             .execute('usp_CreateProgram');
-        
-        res.setHeader('Content-Type', 'application/json');
 
         if (result.recordset && result.recordset.length > 0) {
             const data = result.recordset[0];
-            res.status(200).send(JSON.stringify(data, null, 2));
+            return res.successResponse(data, 'Program created successfully');
         } else {
-            res.status(200).send(JSON.stringify({ message: 'Program created successfully' }, null, 2));
+            return res.successResponse({ program_name }, 'Program created successfully');
         }
     } catch (error) {
         console.error('Error creating program:', error);
-        res.status(500).json({ error: 'Failed to create program', details: error.message });
+        return res.databaseError(error, 'create program');
     }
 };
 
@@ -1740,6 +2001,113 @@ app.get('/api/cart', authenticateUser, async (req, res) => {
     }
 });
 
+// GET inventory item stock status (for real-time validation)
+app.get('/api/inventory-items/:id/stock', authenticateUser, async (req, res) => {
+    try {
+        const inventory_item_id = parseInt(req.params.id);
+        
+        // Validate inventory_item_id
+        if (isNaN(inventory_item_id) || inventory_item_id <= 0) {
+            return res.validationError('Invalid inventory item ID');
+        }
+
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        
+        // Get current stock level and item details
+        const stockQuery = `
+            SELECT 
+                i.inventory_item_id,
+                i.item_name,
+                i.part_number,
+                i.current_stock_level,
+                i.reorder_point,
+                i.max_stock_level,
+                i.program_id,
+                CASE 
+                    WHEN i.current_stock_level <= 0 THEN 'out_of_stock'
+                    WHEN i.current_stock_level <= i.reorder_point THEN 'low_stock'
+                    WHEN i.current_stock_level >= i.max_stock_level THEN 'overstocked'
+                    ELSE 'in_stock'
+                END as stock_status,
+                ISNULL(pending.pending_quantity, 0) as pending_orders_quantity,
+                (i.current_stock_level - ISNULL(pending.pending_quantity, 0)) as available_quantity
+            FROM InventoryItems i
+            LEFT JOIN (
+                SELECT 
+                    poi.inventory_item_id,
+                    SUM(poi.quantity_ordered) as pending_quantity
+                FROM PendingOrderItems poi
+                JOIN PendingOrders po ON poi.order_id = po.order_id
+                WHERE po.status = 'Pending'
+                GROUP BY poi.inventory_item_id
+            ) pending ON i.inventory_item_id = pending.inventory_item_id
+            WHERE i.inventory_item_id = @inventory_item_id
+        `;
+        
+        request.input('inventory_item_id', sql.Int, inventory_item_id);
+        const result = await request.query(stockQuery);
+        
+        if (result.recordset.length === 0) {
+            return res.notFound('Inventory item');
+        }
+        
+        const stockInfo = result.recordset[0];
+        
+        // Check program access for non-admin users
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(stockInfo.program_id)) {
+            return res.forbidden('Access denied to this inventory item');
+        }
+        
+        const stockData = {
+            inventory_item_id: stockInfo.inventory_item_id,
+            item_name: stockInfo.item_name,
+            part_number: stockInfo.part_number,
+            current_stock_level: stockInfo.current_stock_level,
+            pending_orders_quantity: stockInfo.pending_orders_quantity,
+            available_quantity: stockInfo.available_quantity,
+            stock_status: stockInfo.stock_status,
+            reorder_point: stockInfo.reorder_point,
+            max_stock_level: stockInfo.max_stock_level,
+            can_order: stockInfo.available_quantity > 0,
+            stock_message: getStockMessage(stockInfo)
+        };
+        
+        return res.successResponse(stockData, 'Stock information retrieved successfully');
+    } catch (error) {
+        console.error('Error checking inventory stock:', error);
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/inventory-items/:id/stock',
+            errorLocation: 'get_inventory_stock_endpoint',
+            inventoryItemId: req.params.id,
+            userRole: req.user.is_system_admin ? 'admin' : 'user'
+        });
+        
+        return res.databaseError(error, 'check inventory stock');
+    }
+});
+
+// Helper function to generate stock messages
+function getStockMessage(stockInfo) {
+    const available = stockInfo.available_quantity;
+    const current = stockInfo.current_stock_level;
+    const pending = stockInfo.pending_orders_quantity;
+    
+    if (available <= 0) {
+        if (pending > 0) {
+            return `Out of stock (${current} in stock, ${pending} pending orders)`;
+        } else {
+            return `Out of stock (${current} available)`;
+        }
+    } else if (stockInfo.stock_status === 'low_stock') {
+        return `Low stock: ${available} available (${pending} in pending orders)`;
+    } else {
+        return `${available} available${pending > 0 ? ` (${pending} in pending orders)` : ''}`;
+    }
+}
+
 // POST add item to shopping cart
 app.post('/api/cart/add', authenticateUser, async (req, res) => {
     try {
@@ -1747,23 +2115,75 @@ app.post('/api/cart/add', authenticateUser, async (req, res) => {
         
         // Validate required fields
         if (!inventory_item_id || !quantity_requested) {
-            return res.status(400).json({ 
-                error: 'inventory_item_id and quantity_requested are required' 
-            });
+            return res.validationError(['inventory_item_id and quantity_requested are required']);
         }
 
         // Validate quantity is positive
         if (quantity_requested <= 0) {
-            return res.status(400).json({ 
-                error: 'quantity_requested must be greater than 0' 
-            });
+            return res.validationError(['quantity_requested must be greater than 0']);
         }
 
         // Validate estimated_cost if provided
         if (estimated_cost !== undefined && estimated_cost < 0) {
-            return res.status(400).json({ 
-                error: 'estimated_cost cannot be negative' 
-            });
+            return res.validationError(['estimated_cost cannot be negative']);
+        }
+
+        // REAL-TIME STOCK VALIDATION
+        const dbPool = req.app.locals.db;
+        
+        // Check current stock availability
+        const stockCheckQuery = `
+            SELECT 
+                i.inventory_item_id,
+                i.item_name,
+                i.part_number,
+                i.current_stock_level,
+                i.program_id,
+                ISNULL(pending.pending_quantity, 0) as pending_orders_quantity,
+                (i.current_stock_level - ISNULL(pending.pending_quantity, 0)) as available_quantity
+            FROM InventoryItems i
+            LEFT JOIN (
+                SELECT 
+                    poi.inventory_item_id,
+                    SUM(poi.quantity_ordered) as pending_quantity
+                FROM PendingOrderItems poi
+                JOIN PendingOrders po ON poi.order_id = po.order_id
+                WHERE po.status = 'Pending'
+                GROUP BY poi.inventory_item_id
+            ) pending ON i.inventory_item_id = pending.inventory_item_id
+            WHERE i.inventory_item_id = @inventory_item_id
+        `;
+        
+        const stockRequest = dbPool.request();
+        stockRequest.input('inventory_item_id', sql.Int, inventory_item_id);
+        const stockResult = await stockRequest.query(stockCheckQuery);
+        
+        if (stockResult.recordset.length === 0) {
+            return res.notFound('Inventory item');
+        }
+        
+        const stockInfo = stockResult.recordset[0];
+        
+        // Check program access for non-admin users
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(stockInfo.program_id)) {
+            return res.forbidden('Access denied to this inventory item');
+        }
+        
+        // Validate requested quantity against available stock
+        if (quantity_requested > stockInfo.available_quantity) {
+            return res.errorResponse(
+                'Insufficient stock available',
+                {
+                    type: 'insufficient_stock',
+                    requested_quantity: quantity_requested,
+                    available_quantity: stockInfo.available_quantity,
+                    current_stock: stockInfo.current_stock_level,
+                    pending_orders: stockInfo.pending_orders_quantity,
+                    item_name: stockInfo.item_name,
+                    part_number: stockInfo.part_number
+                },
+                400
+            );
         }
 
         // Build the JSON object for the stored procedure
@@ -1778,21 +2198,49 @@ app.post('/api/cart/add', authenticateUser, async (req, res) => {
         console.log('Adding to cart with JSON:', JSON.stringify(cartItemJson, null, 2));
 
         // Execute the stored procedure with JSON parameter
-        const pool = req.app.locals.db;
-        const request = pool.request();
-        request.input('CartItemJson', sql.NVarChar, JSON.stringify(cartItemJson));
+        const request = dbPool.request();
+        request.input('CartJson', sql.NVarChar, JSON.stringify(cartItemJson));
         
         const result = await request.execute('usp_AddToCart');
 
-        res.json({
-            success: true,
-            message: 'Item added to cart successfully', 
-            user_id: req.user.user_id,
-            cart_summary: result.recordset[0] || {}
-        });
+        // Log cart operation for audit trail
+        if (req.app.locals.auditLogger) {
+            try {
+                await req.app.locals.auditLogger.logCRUDOperation(
+                    req.user.user_id,
+                    'CREATE',
+                    'CartItem',
+                    null,
+                    null,
+                    cartItemJson,
+                    getClientIP(req),
+                    stockInfo.program_id,
+                    `Added ${quantity_requested} units of ${stockInfo.item_name} to cart`
+                );
+            } catch (auditError) {
+                console.warn('Failed to log cart operation:', auditError);
+            }
+        }
+
+        return res.successResponse(
+            {
+                user_id: req.user.user_id,
+                cart_summary: result.recordset[0] || {}
+            },
+            'Item added to cart successfully'
+        );
     } catch (error) {
         console.error('Error adding item to cart:', error);
-        res.status(500).json({ error: 'Failed to add item to cart' });
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/cart/add',
+            procedure: 'usp_AddToCart',
+            cartItemJson: cartItemJson,
+            parameterName: 'CartJson'
+        });
+        
+        return res.databaseError(error, 'add item to cart');
     }
 });
 
@@ -1869,12 +2317,42 @@ app.post('/api/orders/create-from-cart', authenticateUser, async (req, res) => {
             });
         }
 
+        // Get user's program_id (use first accessible program for non-admin users)
+        let program_id = null;
+        if (req.user.is_system_admin) {
+            // For system admin, we'll get the program_id from the project
+            const projectRequest = new sql.Request(app.locals.db);
+            const projectResult = await projectRequest
+                .input('project_id', sql.Int, project_id)
+                .query('SELECT program_id FROM Projects WHERE project_id = @project_id');
+            
+            if (projectResult.recordset.length === 0) {
+                return res.status(404).json({ error: 'Project not found' });
+            }
+            program_id = projectResult.recordset[0].program_id;
+        } else {
+            // For non-admin users, use their first accessible program
+            if (req.user.accessible_programs && req.user.accessible_programs.length > 0) {
+                program_id = req.user.accessible_programs[0];
+            } else {
+                return res.status(403).json({ error: 'No program access available' });
+            }
+        }
+
+        // Create JSON object for stored procedure
+        const orderData = {
+            user_id: req.user.user_id,
+            project_id: project_id,
+            program_id: program_id,
+            order_notes: order_notes || null,
+            supplier_info: supplier_info || null
+        };
+
+        console.log('Creating order from cart with JSON:', JSON.stringify(orderData, null, 2));
+
         const request = new sql.Request(app.locals.db);
         const result = await request
-            .input('user_id', sql.Int, req.user.user_id)
-            .input('project_id', sql.Int, project_id)
-            .input('order_notes', sql.NVarChar(sql.MAX), order_notes || null)
-            .input('supplier_info', sql.NVarChar(500), supplier_info || null)
+            .input('OrderJson', sql.NVarChar(sql.MAX), JSON.stringify(orderData))
             .execute('usp_CreateOrderFromCart');
 
         res.json({
@@ -1920,6 +2398,15 @@ app.get('/api/orders/pending', authenticateUser, async (req, res) => {
         });
     } catch (error) {
         console.error('Error getting pending orders:', error);
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/orders/pending',
+            errorLocation: 'get_pending_orders_endpoint',
+            programFilter: req.query.program_id,
+            userRole: req.user.is_system_admin ? 'admin' : 'user'
+        });
+        
         res.status(500).json({ error: 'Failed to get pending orders' });
     }
 });
@@ -1966,7 +2453,79 @@ app.put('/api/orders/:orderId/received', authenticateUser, async (req, res) => {
         }
     } catch (error) {
         console.error('Error marking order as received:', error);
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/orders/:orderId/received',
+            errorLocation: 'mark_order_received_endpoint',
+            orderId: req.params.orderId,
+            userRole: req.user.is_system_admin ? 'admin' : 'user'
+        });
+        
         res.status(500).json({ error: 'Failed to mark order as received' });
+    }
+});
+
+// DELETE order (only pending orders can be deleted)
+app.delete('/api/orders/:orderId', authenticateUser, async (req, res) => {
+    try {
+        const orderId = parseInt(req.params.orderId);
+        
+        // Validate order ID
+        if (isNaN(orderId) || orderId <= 0) {
+            return res.status(400).json({ error: 'Invalid order ID' });
+        }
+
+        console.log(`Deleting order ${orderId} by user ${req.user.user_id}`);
+
+        // Build the JSON object for the stored procedure
+        const orderDeleteJson = {
+            order_id: orderId,
+            user_id: req.user.user_id
+        };
+
+        // Add program_id if user is not system admin (for access control)
+        if (!req.user.is_system_admin && req.user.accessible_programs.length > 0) {
+            // Use the program from query param or user's first accessible program
+            const programId = req.query.program_id ? parseInt(req.query.program_id) : req.user.accessible_programs[0];
+            orderDeleteJson.program_id = programId;
+        }
+
+        console.log('Deleting order with JSON:', JSON.stringify(orderDeleteJson, null, 2));
+
+        // Execute the stored procedure with JSON parameter
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('OrderJson', sql.NVarChar, JSON.stringify(orderDeleteJson));
+        
+        const result = await request.execute('usp_DeleteOrder');
+        
+        if (result.recordset && result.recordset.length > 0) {
+            const resultData = result.recordset[0].result;
+            const data = JSON.parse(resultData);
+            
+            if (data.error) {
+                console.error('Stored procedure error:', data.error);
+                return res.status(400).json({ error: data.error });
+            }
+            
+            console.log('Order deleted successfully:', data);
+            res.json(data);
+        } else {
+            res.status(500).json({ error: 'No result returned from stored procedure' });
+        }
+    } catch (error) {
+        console.error('Error deleting order:', error);
+        
+        // Report this error to GitHub
+        await githubErrorReporting.reportAPIError(error, req, {
+            endpoint: '/api/orders/:orderId',
+            errorLocation: 'delete_order_endpoint',
+            orderId: req.params.orderId,
+            userRole: req.user.is_system_admin ? 'admin' : 'user'
+        });
+        
+        res.status(500).json({ error: 'Failed to delete order' });
     }
 });
 
@@ -2472,20 +3031,70 @@ app.put('/api/tasks/:id', authenticateUser, async (req, res) => {
 // Delete task
 app.delete('/api/tasks/:id', authenticateUser, async (req, res) => {
     try {
-        const pool = req.app.locals.db;
-        const { id } = req.params;
+        const taskId = parseInt(req.params.id);
         
-        const result = await pool.request()
-            .input('task_id', sql.Int, parseInt(id))
+        // First verify the task exists and check authorization
+        const taskCheck = await req.app.locals.db.request()
+            .input('task_id', sql.Int, taskId)
             .query(`
-                DELETE FROM Tasks WHERE task_id = @task_id
+                SELECT T.task_id, T.task_name, T.project_id, P.program_id 
+                FROM Tasks T 
+                INNER JOIN Projects P ON T.project_id = P.project_id 
+                WHERE T.task_id = @task_id
             `);
         
-        if (result.rowsAffected[0] === 0) {
+        if (taskCheck.recordset.length === 0) {
             return res.status(404).json({ error: 'Task not found' });
         }
         
-        res.json({ success: true, message: 'Task deleted successfully' });
+        const task = taskCheck.recordset[0];
+        
+        // Check if user has access to this program
+        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(task.program_id)) {
+            return res.status(403).json({ error: 'Access denied to this program' });
+        }
+        
+        // Check if user has write permissions for this program
+        const programAccess = req.user.program_access.find(p => p.program_id === task.program_id);
+        if (!req.user.is_system_admin && (!programAccess || !['Write', 'Admin'].includes(programAccess.access_level))) {
+            return res.status(403).json({ error: 'Write access required to delete tasks' });
+        }
+        
+        // Build JSON parameter for stored procedure
+        const taskJson = {
+            task_id: taskId,
+            deleted_by: req.user.user_id
+        };
+        
+        console.log('Deleting task with data:', JSON.stringify(taskJson, null, 2));
+        
+        // Execute the secure stored procedure
+        const pool = req.app.locals.db;
+        const request = pool.request();
+        request.input('TaskJson', sql.NVarChar, JSON.stringify(taskJson));
+        
+        const result = await request.execute('usp_DeleteTask');
+        
+        // Return the result from the stored procedure
+        if (result.recordset && result.recordset.length > 0) {
+            const deletionResult = result.recordset[0];
+            
+            if (deletionResult.status === 'SUCCESS') {
+                console.log(`✅ ${deletionResult.message} by user ${req.user.user_id}`);
+                res.json({
+                    success: true,
+                    message: deletionResult.message,
+                    task_id: deletionResult.task_id,
+                    project_id: deletionResult.project_id,
+                    program_id: deletionResult.program_id
+                });
+            } else {
+                console.log(`❌ ${deletionResult.message} for user ${req.user.user_id}`);
+                res.status(400).json({ error: deletionResult.message });
+            }
+        } else {
+            res.status(500).json({ error: 'Failed to delete task - no result returned' });
+        }
         
     } catch (error) {
         console.error('Error deleting task:', error);
@@ -2530,6 +3139,422 @@ app.get('/api/tasks/user/:userId', authenticateUser, async (req, res) => {
 });
 
 // =============================================================================
+// GITHUB INTEGRATION ENDPOINTS (ADMIN ONLY)
+// =============================================================================
+
+// Test GitHub connection
+app.post('/api/admin/github/test', authenticateUser, async (req, res) => {
+    try {
+        // Only system admins can access GitHub integration
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'System Admin access required' });
+        }
+
+        const { owner, repo } = req.body;
+        
+        if (!owner || !repo) {
+            return res.status(400).json({ error: 'Owner and repo are required' });
+        }
+
+        // Test GitHub API connection (without creating issues)
+        const testResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+            headers: {
+                'Authorization': `token ${process.env.GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'H10CM-Debug-Panel'
+            }
+        });
+
+        if (testResponse.ok) {
+            const repoInfo = await testResponse.json();
+            const rateLimitRemaining = testResponse.headers.get('x-ratelimit-remaining');
+            
+            res.json({
+                success: true,
+                message: 'GitHub connection successful',
+                repoInfo: {
+                    name: repoInfo.name,
+                    full_name: repoInfo.full_name,
+                    private: repoInfo.private,
+                    has_issues: repoInfo.has_issues
+                },
+                rateLimitRemaining: parseInt(rateLimitRemaining || '0')
+            });
+        } else {
+            const errorData = await testResponse.json();
+            res.status(testResponse.status).json({
+                error: errorData.message || 'GitHub API error',
+                status: testResponse.status
+            });
+        }
+    } catch (error) {
+        console.error('GitHub connection test error:', error);
+        res.status(500).json({ error: 'Failed to test GitHub connection' });
+    }
+});
+
+// Create GitHub issue
+app.post('/api/admin/github/create-issue', authenticateUser, async (req, res) => {
+    try {
+        // Only system admins can create GitHub issues
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'System Admin access required' });
+        }
+
+        const { config, issueData, errorContext, isManual } = req.body;
+        
+        if (!config?.owner || !config?.repo || !issueData) {
+            return res.status(400).json({ error: 'Invalid request data' });
+        }
+
+        // Check for duplicate issues if enabled
+        if (config.duplicateDetectionEnabled && !isManual) {
+            const duplicateCheck = await checkForDuplicateIssue(config, issueData, errorContext);
+            if (duplicateCheck.isDuplicate) {
+                return res.json({
+                    success: true,
+                    isDuplicate: true,
+                    existingIssueUrl: duplicateCheck.existingIssueUrl,
+                    message: 'Similar issue already exists'
+                });
+            }
+        }
+
+        // Create the GitHub issue
+        console.log('📝 Creating GitHub issue with data:', {
+            title: issueData.title,
+            owner: config.owner,
+            repo: config.repo,
+            bodyLength: issueData.body?.length,
+            labels: issueData.labels
+        });
+
+        const issueResponse = await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/issues`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `token ${process.env.GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+                'User-Agent': 'H10CM-Debug-Panel'
+            },
+            body: JSON.stringify({
+                title: issueData.title,
+                body: issueData.body,
+                labels: issueData.labels,
+                assignees: issueData.assignees || []
+            })
+        });
+
+        console.log('🔍 GitHub API Response:', {
+            status: issueResponse.status,
+            statusText: issueResponse.statusText,
+            headers: Object.fromEntries(issueResponse.headers.entries())
+        });
+
+        if (issueResponse.ok) {
+            const createdIssue = await issueResponse.json();
+            
+            // Log the issue creation
+            console.log(`✅ GitHub issue created: #${createdIssue.number} by ${req.user.user_name}`);
+            
+            // Store issue metadata in database for tracking
+            await storeIssueMetadata(createdIssue, errorContext, req.user);
+            
+            res.json({
+                success: true,
+                issueNumber: createdIssue.number,
+                issueUrl: createdIssue.html_url,
+                issueId: createdIssue.id
+            });
+        } else {
+            const errorData = await issueResponse.json();
+            console.error('❌ GitHub issue creation failed:', {
+                status: issueResponse.status,
+                statusText: issueResponse.statusText,
+                errorData: errorData,
+                requestUrl: `https://api.github.com/repos/${config.owner}/${config.repo}/issues`,
+                requestData: {
+                    title: issueData.title,
+                    bodyLength: issueData.body?.length,
+                    labels: issueData.labels
+                }
+            });
+            res.status(issueResponse.status).json({
+                error: errorData.message || 'Failed to create GitHub issue',
+                status: issueResponse.status,
+                details: errorData
+            });
+        }
+    } catch (error) {
+        console.error('GitHub issue creation error:', error);
+        res.status(500).json({ error: 'Failed to create GitHub issue' });
+    }
+});
+
+// Get GitHub issues created by the system
+app.get('/api/admin/github/issues', authenticateUser, async (req, res) => {
+    try {
+        // Only system admins can view GitHub issues
+        if (!req.user.is_system_admin) {
+            return res.status(403).json({ error: 'System Admin access required' });
+        }
+
+        // Get issues from our tracking database
+        const pool = req.app.locals.db;
+        const result = await pool.request()
+            .input('limit', sql.Int, parseInt(req.query.limit) || 50)
+            .input('offset', sql.Int, parseInt(req.query.offset) || 0)
+            .query(`
+                SELECT TOP (@limit) 
+                    issue_id,
+                    issue_number,
+                    issue_url,
+                    issue_title,
+                    labels,
+                    error_type,
+                    severity,
+                    created_by_user,
+                    created_at,
+                    is_manual
+                FROM GitHubIssues 
+                ORDER BY created_at DESC
+                OFFSET @offset ROWS
+            `);
+        
+        res.json(result.recordset || []);
+    } catch (error) {
+        console.error('Error fetching GitHub issues:', error);
+        res.status(500).json({ error: 'Failed to fetch GitHub issues' });
+    }
+});
+
+// Helper function to check for duplicate issues
+async function checkForDuplicateIssue(config, issueData, errorContext) {
+    try {
+        // Search for similar issues in the last 30 days
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const searchQuery = `repo:${config.owner}/${config.repo} is:issue created:>${thirtyDaysAgo.toISOString().split('T')[0]} ${issueData.title.split(' ').slice(0, 3).join(' ')}`;
+        
+        const searchResponse = await fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(searchQuery)}`, {
+            headers: {
+                'Authorization': `token ${process.env.GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'H10CM-Debug-Panel'
+            }
+        });
+
+        if (searchResponse.ok) {
+            const searchResults = await searchResponse.json();
+            
+            // Check for similar titles or error messages
+            for (const issue of searchResults.items) {
+                const similarity = calculateStringSimilarity(issueData.title, issue.title);
+                if (similarity > 0.8) {
+                    return {
+                        isDuplicate: true,
+                        existingIssueUrl: issue.html_url,
+                        existingIssue: issue
+                    };
+                }
+            }
+        }
+        
+        return { isDuplicate: false };
+    } catch (error) {
+        console.warn('Duplicate check failed:', error);
+        return { isDuplicate: false };
+    }
+}
+
+// Helper function to store issue metadata
+async function storeIssueMetadata(githubIssue, errorContext, user) {
+    try {
+        const pool = app.locals.db;
+        
+        // Create GitHubIssues table if it doesn't exist
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='GitHubIssues' AND xtype='U')
+            CREATE TABLE GitHubIssues (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                issue_id BIGINT NOT NULL,
+                issue_number INT NOT NULL,
+                issue_url NVARCHAR(500) NOT NULL,
+                issue_title NVARCHAR(500) NOT NULL,
+                labels NVARCHAR(MAX),
+                error_type NVARCHAR(50),
+                severity NVARCHAR(20),
+                error_context NVARCHAR(MAX),
+                created_by_user NVARCHAR(100),
+                created_at DATETIME2 DEFAULT GETDATE(),
+                is_manual BIT DEFAULT 0
+            )
+        `);
+        
+        await pool.request()
+            .input('issue_id', sql.BigInt, githubIssue.id)
+            .input('issue_number', sql.Int, githubIssue.number)
+            .input('issue_url', sql.NVarChar, githubIssue.html_url)
+            .input('issue_title', sql.NVarChar, githubIssue.title)
+            .input('labels', sql.NVarChar, JSON.stringify(githubIssue.labels?.map(l => l.name) || []))
+            .input('error_type', sql.NVarChar, errorContext?.errorType || 'manual')
+            .input('severity', sql.NVarChar, errorContext?.severity || 'medium')
+            .input('error_context', sql.NVarChar, JSON.stringify(errorContext || {}))
+            .input('created_by_user', sql.NVarChar, user.user_name)
+            .input('is_manual', sql.Bit, !errorContext)
+            .query(`
+                INSERT INTO GitHubIssues 
+                (issue_id, issue_number, issue_url, issue_title, labels, error_type, severity, error_context, created_by_user, is_manual)
+                VALUES 
+                (@issue_id, @issue_number, @issue_url, @issue_title, @labels, @error_type, @severity, @error_context, @created_by_user, @is_manual)
+            `);
+    } catch (error) {
+        console.warn('Failed to store issue metadata:', error);
+    }
+}
+
+// Helper function to calculate string similarity
+function calculateStringSimilarity(str1, str2) {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    const editDistance = getEditDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+}
+
+function getEditDistance(str1, str2) {
+    const matrix = [];
+    
+    for (let i = 0; i <= str2.length; i++) {
+        matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+        matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= str2.length; i++) {
+        for (let j = 1; j <= str1.length; j++) {
+            if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+    
+    return matrix[str2.length][str1.length];
+}
+
+// =============================================================================
+// AUDIT TRAIL ENDPOINTS
+// =============================================================================
+
+// GET audit trail for specific entity
+app.get('/api/audit/entity/:entityType/:entityId', authenticateUser, async (req, res) => {
+    try {
+        const { entityType, entityId } = req.params;
+        const { limit = 50 } = req.query;
+        
+        if (!req.app.locals.auditLogger) {
+            return res.errorResponse('Audit logging not available', null, 503);
+        }
+
+        // Get user's program context for filtering
+        const programId = req.user.is_system_admin ? null : req.user.accessible_programs[0];
+        
+        const auditTrail = await req.app.locals.auditLogger.getAuditTrail(
+            entityType,
+            parseInt(entityId),
+            null, // All users
+            programId,
+            parseInt(limit)
+        );
+
+        return res.successResponse(auditTrail, `Audit trail retrieved for ${entityType} ID: ${entityId}`);
+    } catch (error) {
+        console.error('Error retrieving audit trail:', error);
+        return res.databaseError(error, 'retrieve audit trail');
+    }
+});
+
+// GET user activity summary
+app.get('/api/audit/user/:userId/activity', authenticateUser, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { days = 7 } = req.query;
+        
+        // Only allow users to view their own activity unless admin
+        if (!req.user.is_system_admin && req.user.user_id != userId) {
+            return res.forbidden('Can only view your own activity');
+        }
+
+        if (!req.app.locals.auditLogger) {
+            return res.errorResponse('Audit logging not available', null, 503);
+        }
+
+        const dateFrom = new Date();
+        dateFrom.setDate(dateFrom.getDate() - parseInt(days));
+        const dateTo = new Date();
+
+        const programId = req.user.is_system_admin ? null : req.user.accessible_programs[0];
+        
+        const activitySummary = await req.app.locals.auditLogger.getUserActivitySummary(
+            parseInt(userId),
+            dateFrom,
+            dateTo,
+            programId
+        );
+
+        return res.successResponse(
+            activitySummary,
+            `Activity summary for user ${userId} (last ${days} days)`,
+            { days: parseInt(days), date_from: dateFrom, date_to: dateTo }
+        );
+    } catch (error) {
+        console.error('Error retrieving user activity:', error);
+        return res.databaseError(error, 'retrieve user activity');
+    }
+});
+
+// GET security events (Admin only)
+app.get('/api/audit/security-events', authenticateUser, async (req, res) => {
+    try {
+        if (!req.user.is_system_admin) {
+            return res.forbidden('Admin access required for security events');
+        }
+
+        const { severity, hours = 24 } = req.query;
+        
+        if (!req.app.locals.auditLogger) {
+            return res.errorResponse('Audit logging not available', null, 503);
+        }
+
+        const securityEvents = await req.app.locals.auditLogger.getSecurityEvents(
+            severity,
+            null, // All users
+            parseInt(hours)
+        );
+
+        return res.successResponse(
+            securityEvents,
+            `Security events retrieved (last ${hours} hours)`,
+            { hours: parseInt(hours), severity: severity || 'all' }
+        );
+    } catch (error) {
+        console.error('Error retrieving security events:', error);
+        return res.databaseError(error, 'retrieve security events');
+    }
+});
+
+// =============================================================================
 // PROCUREMENT MANAGEMENT ROUTES
 // =============================================================================
 
@@ -2539,8 +3564,53 @@ app.use('/api', (req, res, next) => {
     next();
 }, procurementRoutes);
 
+// TEST ENDPOINT - For testing error reporting (REMOVE IN PRODUCTION)
+app.get('/api/test/error', async (req, res) => {
+    console.log('🧪 Testing error reporting...');
+    
+    if (req.query.type === 'sync') {
+        // Test synchronous error
+        throw new Error('Test synchronous error for GitHub reporting');
+    } else if (req.query.type === 'async') {
+        // Test asynchronous error
+        setTimeout(() => {
+            throw new Error('Test asynchronous error for GitHub reporting');
+        }, 100);
+        res.json({ message: 'Async error will be thrown in 100ms' });
+    } else if (req.query.type === 'promise') {
+        // Test promise rejection
+        Promise.reject(new Error('Test promise rejection for GitHub reporting'));
+        res.json({ message: 'Promise rejection triggered' });
+    } else {
+        // Test manual error reporting
+        const testError = new Error('Test manual error reporting');
+        await githubErrorReporting.reportAPIError(testError, req, {
+            testType: 'manual',
+            description: 'Manual test of error reporting system'
+        });
+        res.json({ message: 'Manual error reported to GitHub' });
+    }
+});
+
 // Export app for testing
 module.exports = app;
+
+// Global error handler for unhandled errors in Express routes
+app.use((error, req, res, next) => {
+    console.error('🔥 Global Express Error Handler:', error);
+    
+    // Report error to GitHub
+    githubErrorReporting.reportAPIError(error, req, {
+        middleware: 'global_error_handler',
+        timestamp: new Date().toISOString()
+    });
+    
+    // Send generic error response
+    res.status(500).json({ 
+        error: 'Internal server error',
+        message: 'An error occurred while processing your request'
+    });
+});
 
 // Start server only if not in test environment
 if (require.main === module) {
