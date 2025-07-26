@@ -478,24 +478,15 @@ app.get('/api/projects', authenticateUser, async (req, res) => {
 // GET a single project by ID (with program access check)
 app.get('/api/projects/:id', authenticateUser, async (req, res) => {
     try {
-        const query = `
-            SELECT p.*, pr.program_name, pr.program_code,
-                   pm.display_name as project_manager_name
-            FROM Projects p
-            JOIN Programs pr ON p.program_id = pr.program_id
-            LEFT JOIN Users pm ON p.project_manager_id = pm.user_id
-            WHERE p.project_id = @project_id
-        `;
-        
-        const params = [{ name: 'project_id', type: sql.Int, value: req.params.id }];
+        const projectDetailsJson = JSON.stringify({
+            project_id: parseInt(req.params.id)
+        });
         
         const pool = req.app.locals.db;
         const request = pool.request();
-        params.forEach(param => {
-            request.input(param.name, param.type, param.value);
-        });
+        request.input('ProjectDetailsJson', sql.NVarChar, projectDetailsJson);
         
-        const result = await request.query(query);
+        const result = await request.execute('usp_GetProjectDetails');
         
         if (result.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
@@ -520,19 +511,16 @@ app.get('/api/projects/:id/steps', authenticateUser, async (req, res) => {
     try {
         const projectId = req.params.id;
         
-        // First verify the project exists and user has access to it
-        const projectQuery = `
-            SELECT p.*, pr.program_name, pr.program_code
-            FROM Projects p
-            JOIN Programs pr ON p.program_id = pr.program_id
-            WHERE p.project_id = @project_id
-        `;
+        // First verify the project exists and user has access to it using secure procedure
+        const projectAccessJson = JSON.stringify({
+            project_id: parseInt(projectId)
+        });
         
         const pool = req.app.locals.db;
         const projectRequest = pool.request();
-        projectRequest.input('project_id', sql.Int, projectId);
+        projectRequest.input('ProjectAccessJson', sql.NVarChar, projectAccessJson);
         
-        const projectResult = await projectRequest.query(projectQuery);
+        const projectResult = await projectRequest.execute('usp_GetProjectForAccess');
         
         if (projectResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
@@ -569,19 +557,16 @@ app.get('/api/projects/:id/tracked-items', authenticateUser, async (req, res) =>
     try {
         const projectId = req.params.id;
         
-        // First verify the project exists and user has access to it
-        const projectQuery = `
-            SELECT p.*, pr.program_name, pr.program_code
-            FROM Projects p
-            JOIN Programs pr ON p.program_id = pr.program_id
-            WHERE p.project_id = @project_id
-        `;
+        // First verify the project exists and user has access to it using secure procedure
+        const projectAccessJson = JSON.stringify({
+            project_id: parseInt(projectId)
+        });
         
         const pool = req.app.locals.db;
         const projectRequest = pool.request();
-        projectRequest.input('project_id', sql.Int, projectId);
+        projectRequest.input('ProjectAccessJson', sql.NVarChar, projectAccessJson);
         
-        const projectResult = await projectRequest.query(projectQuery);
+        const projectResult = await projectRequest.execute('usp_GetProjectForAccess');
         
         if (projectResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
@@ -594,58 +579,30 @@ app.get('/api/projects/:id/tracked-items', authenticateUser, async (req, res) =>
             return res.status(403).json({ error: 'Access denied to this project' });
         }
         
-        // Get tracked items for the project with step progress information
-        const trackedItemsQuery = `
-            SELECT 
-                ti.item_id,
-                ti.project_id,
-                ti.item_identifier,
-                ti.current_overall_status,
-                ti.is_shipped,
-                ti.shipped_date,
-                ti.date_fully_completed,
-                ti.date_created,
-                ti.last_modified,
-                ti.created_by,
-                ti.notes,
-                -- Include step progress information
-                (
-                    SELECT 
-                        tsp.step_id as stepId,
-                        tsp.status,
-                        tsp.date_completed as completedDate,
-                        tsp.date_started as startedDate,
-                        tsp.notes as stepNotes,
-                        u.display_name as completed_by_user_name
-                    FROM TrackedItemStepProgress tsp
-                    LEFT JOIN Users u ON tsp.assigned_to = u.user_id
-                    WHERE tsp.item_id = ti.item_id
-                    FOR JSON PATH
-                ) as step_statuses_json
-            FROM TrackedItems ti
-            WHERE ti.project_id = @project_id
-            ORDER BY ti.date_created DESC
-        `;
+        // Get tracked items using secure stored procedure
+        const trackedItemsJson = JSON.stringify({
+            project_id: parseInt(projectId)
+        });
         
         const trackedItemsRequest = pool.request();
-        trackedItemsRequest.input('project_id', sql.Int, projectId);
+        trackedItemsRequest.input('TrackedItemsJson', sql.NVarChar, trackedItemsJson);
         
-        const trackedItemsResult = await trackedItemsRequest.query(trackedItemsQuery);
+        const trackedItemsResult = await trackedItemsRequest.execute('usp_GetTrackedItems');
         
-        // Transform the data to parse the JSON step statuses
+        // Transform the data to parse the JSON step progress
         const transformedItems = trackedItemsResult.recordset.map(item => {
             let step_statuses = [];
-            if (item.step_statuses_json) {
+            if (item.step_progress) {
                 try {
-                    step_statuses = JSON.parse(item.step_statuses_json);
+                    step_statuses = JSON.parse(item.step_progress);
                 } catch (error) {
-                    console.error('Error parsing step statuses JSON:', error);
+                    console.error('Error parsing step progress JSON:', error);
                     step_statuses = [];
                 }
             }
             
             // Remove the JSON field and add the parsed step_statuses
-            const { step_statuses_json, ...itemWithoutJson } = item;
+            const { step_progress, ...itemWithoutJson } = item;
             return {
                 ...itemWithoutJson,
                 step_statuses: step_statuses
@@ -665,19 +622,16 @@ app.get('/api/projects/:id/attributes', authenticateUser, async (req, res) => {
     try {
         const projectId = req.params.id;
         
-        // First verify the project exists and user has access to it
-        const projectQuery = `
-            SELECT p.*, pr.program_name, pr.program_code
-            FROM Projects p
-            JOIN Programs pr ON p.program_id = pr.program_id
-            WHERE p.project_id = @project_id
-        `;
+        // First verify the project exists and user has access to it using secure procedure
+        const projectAccessJson = JSON.stringify({
+            project_id: parseInt(projectId)
+        });
         
         const pool = req.app.locals.db;
         const projectRequest = pool.request();
-        projectRequest.input('project_id', sql.Int, projectId);
+        projectRequest.input('ProjectAccessJson', sql.NVarChar, projectAccessJson);
         
-        const projectResult = await projectRequest.query(projectQuery);
+        const projectResult = await projectRequest.execute('usp_GetProjectForAccess');
         
         if (projectResult.recordset.length === 0) {
             return res.status(404).json({ error: 'Project not found' });
@@ -690,27 +644,15 @@ app.get('/api/projects/:id/attributes', authenticateUser, async (req, res) => {
             return res.status(403).json({ error: 'Access denied to this project' });
         }
         
-        // Get project attributes
-        const attributesQuery = `
-            SELECT 
-                attribute_definition_id,
-                project_id,
-                attribute_name,
-                attribute_type,
-                display_order,
-                is_required,
-                is_auto_generated,
-                default_value,
-                validation_rules
-            FROM AttributeDefinitions
-            WHERE project_id = @project_id
-            ORDER BY display_order, attribute_name
-        `;
+        // Get project attributes using secure stored procedure
+        const attributesJson = JSON.stringify({
+            project_id: parseInt(projectId)
+        });
         
         const attributesRequest = pool.request();
-        attributesRequest.input('project_id', sql.Int, projectId);
+        attributesRequest.input('AttributesJson', sql.NVarChar, attributesJson);
         
-        const attributesResult = await attributesRequest.query(attributesQuery);
+        const attributesResult = await attributesRequest.execute('usp_GetProjectAttributes');
         
         // Return the attributes in the format expected by the frontend
         res.json(attributesResult.recordset || []);
@@ -726,81 +668,43 @@ app.post('/api/attributes', authenticateUser, async (req, res) => {
         const {
             project_id,
             attribute_name,
+            attribute_value,
             attribute_type,
             is_required,
-            is_auto_generated,
-            display_order,
-            default_value,
-            validation_rules
+            display_order
         } = req.body;
         
         // Validate required fields
-        if (!project_id || !attribute_name || !attribute_type) {
-            return res.status(400).json({ error: 'Missing required fields: project_id, attribute_name, attribute_type' });
+        if (!project_id || !attribute_name) {
+            return res.status(400).json({ error: 'Missing required fields: project_id, attribute_name' });
         }
         
-        // First verify the project exists and user has access to it
-        const projectQuery = `
-            SELECT p.*, pr.program_name, pr.program_code
-            FROM Projects p
-            JOIN Programs pr ON p.program_id = pr.program_id
-            WHERE p.project_id = @project_id
-        `;
+        // Use secure stored procedure for attribute creation
+        const attributeJson = JSON.stringify({
+            project_id: parseInt(project_id),
+            attribute_name: attribute_name,
+            attribute_value: attribute_value || '',
+            attribute_type: attribute_type || 'text',
+            is_required: is_required || false,
+            display_order: display_order || null,
+            created_by: req.user.user_id
+        });
         
         const pool = req.app.locals.db;
-        const projectRequest = pool.request();
-        projectRequest.input('project_id', sql.Int, project_id);
+        const request = pool.request();
+        request.input('AttributeJson', sql.NVarChar, attributeJson);
         
-        const projectResult = await projectRequest.query(projectQuery);
+        const result = await request.execute('usp_CreateProjectAttribute');
         
-        if (projectResult.recordset.length === 0) {
-            return res.status(404).json({ error: 'Project not found' });
+        if (result.recordset.length === 0) {
+            return res.status(500).json({ error: 'Failed to create attribute' });
         }
         
-        const project = projectResult.recordset[0];
-        
-        // Check program access for non-admin users
-        if (!req.user.is_system_admin && !req.user.accessible_programs.includes(project.program_id)) {
-            return res.status(403).json({ error: 'Access denied to this project' });
-        }
-        
-        // Insert the new attribute definition
-        const insertQuery = `
-            INSERT INTO AttributeDefinitions (
-                project_id, 
-                attribute_name, 
-                attribute_type, 
-                display_order, 
-                is_required, 
-                is_auto_generated,
-                default_value, 
-                validation_rules
-            )
-            OUTPUT INSERTED.*
-            VALUES (@project_id, @attribute_name, @attribute_type, @display_order, @is_required, @is_auto_generated, @default_value, @validation_rules)
-        `;
-        
-        const insertRequest = pool.request();
-        insertRequest.input('project_id', sql.Int, project_id);
-        insertRequest.input('attribute_name', sql.NVarChar, attribute_name);
-        insertRequest.input('attribute_type', sql.NVarChar, attribute_type);
-        insertRequest.input('display_order', sql.Int, display_order || 1);
-        insertRequest.input('is_required', sql.Bit, is_required || false);
-        insertRequest.input('is_auto_generated', sql.Bit, is_auto_generated || false);
-        insertRequest.input('default_value', sql.NVarChar, default_value || null);
-        insertRequest.input('validation_rules', sql.NVarChar, validation_rules || null);
-        
-        const insertResult = await insertRequest.query(insertQuery);
-        
-        if (insertResult.recordset.length === 0) {
-            return res.status(500).json({ error: 'Failed to create attribute definition' });
-        }
-        
-        // Return the created attribute definition
-        res.status(201).json(insertResult.recordset[0]);
+        // Return the created attribute
+        res.status(201).json(result.recordset[0]);
     } catch (error) {
-        console.error('Error creating attribute definition:', error);
-        res.status(500).json({ error: 'Failed to create attribute definition' });
+        console.error('Error creating attribute:', error);
+        res.status(500).json({ error: 'Failed to create attribute' });
     }
 });
 
