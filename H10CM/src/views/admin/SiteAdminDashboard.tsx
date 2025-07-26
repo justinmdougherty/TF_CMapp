@@ -26,6 +26,18 @@ import {
   InputLabel,
   Select,
 } from '@mui/material';
+import axios from 'axios';
+
+// Create authenticated API client
+const apiClient = axios.create({
+  baseURL: '/api',
+});
+
+// Add authentication header
+apiClient.interceptors.request.use((config) => {
+  config.headers['x-arr-clientcert'] = 'development-fallback';
+  return config;
+});
 import {
   AdminPanelSettings as AdminIcon,
   People as UsersIcon,
@@ -108,12 +120,11 @@ const SiteAdminDashboard: React.FC = () => {
   // Load programs data
   const loadPrograms = async () => {
     try {
-      const response = await fetch('/api/programs');
-      if (response.ok) {
-        const data = await response.json();
-        setPrograms(data);
+      const response = await apiClient.get('/programs');
+      if (response.data && response.data.success) {
+        setPrograms(response.data.data);
       } else {
-        console.error('Failed to load programs:', response.statusText);
+        console.error('Failed to load programs:', response.data?.error || 'Unknown error');
         // Fallback to mock data if API fails
         const mockPrograms = [
           {

@@ -8,6 +8,7 @@ import {
 } from '../types/UserPermissions';
 import { AccessRequest, AccessResult, Program } from '../types/ProgramAccess';
 import AccessRequestSplash from '../components/auth/AccessRequestSplash';
+import { githubIntegrationService } from '../services/githubIntegrationService';
 
 interface RBACContextType {
   currentUser: UserProfile | null;
@@ -133,6 +134,22 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
 
     initializeAuth();
   }, []);
+
+  // Update GitHub integration service with user context when authentication changes
+  useEffect(() => {
+    if (isAuthenticated && currentUser) {
+      const config = githubIntegrationService.getConfig();
+      if (config.enabled && config.autoCreateIssues) {
+        // Re-enable auto error capture with user context
+        githubIntegrationService.enableAutoErrorCapture({
+          userId: currentUser.user_id,
+          username: currentUser.full_name || currentUser.email,
+          sessionId: `session_${Date.now()}`,
+        });
+        console.log('✅ GitHub error capture updated with user context:', currentUser.full_name);
+      }
+    }
+  }, [isAuthenticated, currentUser]);
 
   // Fetch all users from API
   const fetchAllUsers = async () => {

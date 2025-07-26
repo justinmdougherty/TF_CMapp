@@ -206,8 +206,8 @@ BEGIN
             (SELECT COUNT(*) FROM Users) as total_user_count,
             (SELECT COUNT(*) FROM Projects) as project_count,
             (SELECT COUNT(*) FROM Tasks) as task_count,
-            (SELECT COUNT(*) FROM InventoryItems) as inventory_item_count
-        WHERE @IsSystemAdmin = 1;
+            (SELECT COUNT(*) FROM InventoryItems) as inventory_item_count;
+        -- Removed WHERE @IsSystemAdmin = 1 clause to allow checking admin existence
         
     END TRY
     BEGIN CATCH
@@ -335,7 +335,7 @@ GO
 -- usp_GetProjectDetails - Replaces raw SQL at line 482 in api/index.js
 -- Secure retrieval of project details with program manager information
 -- -----------------------------------------------------------------------------
-CREATE PROCEDURE [dbo].[usp_GetProjectDetails]
+CREATE OR ALTER PROCEDURE [dbo].[usp_GetProjectDetails]
     @ProjectDetailsJson NVARCHAR(MAX)
 AS
 BEGIN
@@ -356,14 +356,14 @@ BEGIN
             p.project_description,
             p.program_id,
             p.project_manager_id,
-            p.start_date,
-            p.end_date,
+            p.project_start_date as start_date,
+            p.project_end_date as end_date,
             p.budget,
             p.status,
-            p.created_date,
+            p.date_created,
             p.last_modified,
             p.created_by,
-            p.modified_by,
+            p.created_by as modified_by,  -- Use created_by if modified_by doesn't exist
             pr.program_name,
             pr.program_code,
             pm.display_name as project_manager_name
@@ -384,7 +384,7 @@ GO
 -- usp_GetProjectForAccess - Replaces repeated project access validation queries
 -- Used by multiple endpoints for consistent program access checking
 -- -----------------------------------------------------------------------------
-CREATE PROCEDURE [dbo].[usp_GetProjectForAccess]
+CREATE OR ALTER PROCEDURE [dbo].[usp_GetProjectForAccess]
     @ProjectAccessJson NVARCHAR(MAX)
 AS
 BEGIN
@@ -421,7 +421,7 @@ GO
 -- usp_GetTrackedItems - Replaces complex raw SQL at lines 574-599 in api/index.js
 -- Secure retrieval of tracked items with step progress information
 -- -----------------------------------------------------------------------------
-CREATE PROCEDURE [dbo].[usp_GetTrackedItems]
+CREATE OR ALTER PROCEDURE [dbo].[usp_GetTrackedItems]
     @TrackedItemsJson NVARCHAR(MAX)
 AS
 BEGIN
@@ -457,7 +457,7 @@ BEGIN
                     tsp.notes,
                     ps.step_name as stepName,
                     ps.step_order as stepOrder,
-                    ps.description as stepDescription
+                    ps.step_description as stepDescription
                 FROM TrackedItemStepProgress tsp
                 JOIN ProjectSteps ps ON tsp.step_id = ps.step_id
                 WHERE tsp.item_id = ti.item_id
@@ -480,7 +480,7 @@ GO
 -- usp_GetProjectAttributes - Replaces raw SQL at line 670 in api/index.js
 -- Secure retrieval of project attributes with validation
 -- -----------------------------------------------------------------------------
-CREATE PROCEDURE [dbo].[usp_GetProjectAttributes]
+CREATE OR ALTER PROCEDURE [dbo].[usp_GetProjectAttributes]
     @AttributesJson NVARCHAR(MAX)
 AS
 BEGIN
@@ -494,22 +494,20 @@ BEGIN
         IF @project_id IS NULL OR @project_id <= 0
             RAISERROR('Valid project ID is required', 16, 1);
         
-        -- Get project attributes
+        -- Get project attributes from AttributeDefinitions table
         SELECT 
-            pa.attribute_id,
-            pa.project_id,
-            pa.attribute_name,
-            pa.attribute_value,
-            pa.attribute_type,
-            pa.is_required,
-            pa.display_order,
-            pa.created_date,
-            pa.created_by,
-            pa.last_modified,
-            pa.modified_by
-        FROM ProjectAttributes pa
-        WHERE pa.project_id = @project_id
-        ORDER BY pa.display_order, pa.attribute_name;
+            ad.attribute_definition_id,
+            ad.project_id,
+            ad.attribute_name,
+            ad.attribute_type,
+            ad.display_order,
+            ad.is_required,
+            ad.is_auto_generated,
+            ad.default_value,
+            ad.validation_rules
+        FROM AttributeDefinitions ad
+        WHERE ad.project_id = @project_id
+        ORDER BY ad.display_order, ad.attribute_name;
         
     END TRY
     BEGIN CATCH
@@ -523,7 +521,7 @@ GO
 -- usp_CreateProjectAttribute - Replaces raw SQL validation at line 744 in api/index.js
 -- Secure creation of project attributes with validation
 -- -----------------------------------------------------------------------------
-CREATE PROCEDURE [dbo].[usp_CreateProjectAttribute]
+CREATE OR ALTER PROCEDURE [dbo].[usp_CreateProjectAttribute]
     @AttributeJson NVARCHAR(MAX)
 AS
 BEGIN
@@ -533,11 +531,12 @@ BEGIN
         -- Extract parameters from JSON
         DECLARE @project_id INT = JSON_VALUE(@AttributeJson, '$.project_id');
         DECLARE @attribute_name NVARCHAR(255) = JSON_VALUE(@AttributeJson, '$.attribute_name');
-        DECLARE @attribute_value NVARCHAR(MAX) = JSON_VALUE(@AttributeJson, '$.attribute_value');
         DECLARE @attribute_type NVARCHAR(50) = JSON_VALUE(@AttributeJson, '$.attribute_type');
         DECLARE @is_required BIT = CAST(JSON_VALUE(@AttributeJson, '$.is_required') AS BIT);
+        DECLARE @is_auto_generated BIT = CAST(JSON_VALUE(@AttributeJson, '$.is_auto_generated') AS BIT);
         DECLARE @display_order INT = JSON_VALUE(@AttributeJson, '$.display_order');
-        DECLARE @created_by INT = JSON_VALUE(@AttributeJson, '$.created_by');
+        DECLARE @default_value NVARCHAR(MAX) = JSON_VALUE(@AttributeJson, '$.default_value');
+        DECLARE @validation_rules NVARCHAR(MAX) = JSON_VALUE(@AttributeJson, '$.validation_rules');
         
         -- Input validation
         IF @project_id IS NULL OR @project_id <= 0
@@ -546,17 +545,15 @@ BEGIN
         IF @attribute_name IS NULL OR LEN(TRIM(@attribute_name)) = 0
             RAISERROR('Attribute name is required', 16, 1);
         
-        IF @created_by IS NULL OR @created_by <= 0
-            RAISERROR('Valid creator user ID is required', 16, 1);
-        
         -- Set defaults
         IF @attribute_type IS NULL SET @attribute_type = 'text';
         IF @is_required IS NULL SET @is_required = 0;
+        IF @is_auto_generated IS NULL SET @is_auto_generated = 0;
         IF @display_order IS NULL 
         BEGIN
             -- Get next display order
             SELECT @display_order = ISNULL(MAX(display_order), 0) + 1
-            FROM ProjectAttributes
+            FROM AttributeDefinitions
             WHERE project_id = @project_id;
         END
         
@@ -566,53 +563,47 @@ BEGIN
         
         -- Check for duplicate attribute name within project
         IF EXISTS (
-            SELECT 1 FROM ProjectAttributes 
+            SELECT 1 FROM AttributeDefinitions 
             WHERE project_id = @project_id 
             AND attribute_name = @attribute_name
         )
             RAISERROR('Attribute name already exists for this project', 16, 1);
         
-        -- Insert new attribute
-        INSERT INTO ProjectAttributes (
+        -- Insert new attribute definition
+        INSERT INTO AttributeDefinitions (
             project_id,
             attribute_name,
-            attribute_value,
             attribute_type,
-            is_required,
             display_order,
-            created_date,
-            created_by,
-            last_modified,
-            modified_by
+            is_required,
+            is_auto_generated,
+            default_value,
+            validation_rules
         )
         VALUES (
             @project_id,
             @attribute_name,
-            @attribute_value,
             @attribute_type,
-            @is_required,
             @display_order,
-            GETDATE(),
-            @created_by,
-            GETDATE(),
-            @created_by
+            @is_required,
+            @is_auto_generated,
+            @default_value,
+            @validation_rules
         );
         
-        -- Return the created attribute
+        -- Return the created attribute definition
         SELECT 
-            attribute_id,
+            attribute_definition_id,
             project_id,
             attribute_name,
-            attribute_value,
             attribute_type,
-            is_required,
             display_order,
-            created_date,
-            created_by,
-            last_modified,
-            modified_by
-        FROM ProjectAttributes
-        WHERE attribute_id = SCOPE_IDENTITY();
+            is_required,
+            is_auto_generated,
+            default_value,
+            validation_rules
+        FROM AttributeDefinitions
+        WHERE attribute_definition_id = SCOPE_IDENTITY();
         
     END TRY
     BEGIN CATCH

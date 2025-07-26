@@ -65,8 +65,8 @@ const Breadcrumb = ({ subtitle, items, title, children, compact = true }: BreadC
         aria-label="breadcrumb"
       >
         {items
-          ? items.map((item) => (
-              <div key={item.title}>
+          ? items.map((item, index) => (
+              <div key={`${item.title}-${index}`}>
                 {item.to ? (
                   <Link underline="none" color="inherit" component={NavLink} to={item.to}>
                     {item.title}

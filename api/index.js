@@ -778,7 +778,7 @@ app.get('/api/projects/:id/tracked-items', authenticateUser, async (req, res) =>
         
         const trackedItemsResult = await trackedItemsRequest.execute('usp_GetTrackedItems');
         
-        // Transform the data to parse the JSON step progress
+        // Transform the data to parse the JSON step progress and attributes
         const transformedItems = trackedItemsResult.recordset.map(item => {
             let step_statuses = [];
             if (item.step_progress) {
@@ -790,11 +790,22 @@ app.get('/api/projects/:id/tracked-items', authenticateUser, async (req, res) =>
                 }
             }
             
-            // Remove the JSON field and add the parsed step_statuses
-            const { step_progress, ...itemWithoutJson } = item;
+            let attributes = [];
+            if (item.attributes) {
+                try {
+                    attributes = JSON.parse(item.attributes);
+                } catch (error) {
+                    console.error('Error parsing attributes JSON:', error);
+                    attributes = [];
+                }
+            }
+            
+            // Remove the JSON fields and add the parsed data
+            const { step_progress, attributes: attributesJson, ...itemWithoutJson } = item;
             return {
                 ...itemWithoutJson,
-                step_statuses: step_statuses
+                step_statuses: step_statuses,
+                attributes: attributes
             };
         });
         
