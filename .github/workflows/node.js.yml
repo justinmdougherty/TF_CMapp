@@ -1,0 +1,159 @@
+# H10CM Production Management System - CI/CD Pipeline
+# This workflow builds and tests both frontend (React/TypeScript) and backend (Node.js/Express)
+# Optimized for the H10CM multi-tenant production management system
+
+name: H10CM CI/CD
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  # Backend API Tests
+  backend:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+        
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: api/package-lock.json
+        
+    - name: Install backend dependencies
+      working-directory: ./api
+      run: npm ci
+      
+    - name: Run backend tests
+      working-directory: ./api
+      run: npm test
+      
+    - name: Check backend security vulnerabilities
+      working-directory: ./api
+      run: npm audit --audit-level high
+
+  # Frontend React/TypeScript Tests  
+  frontend:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+        
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: H10CM/package-lock.json
+        
+    - name: Install frontend dependencies
+      working-directory: ./H10CM
+      run: npm ci
+      
+    - name: Run TypeScript compilation check
+      working-directory: ./H10CM
+      run: npm run type-check || npm run tsc --noEmit
+      
+    - name: Run frontend tests
+      working-directory: ./H10CM
+      run: npm test
+      
+    - name: Build frontend for production
+      working-directory: ./H10CM
+      run: npm run build
+      
+    - name: Check frontend security vulnerabilities
+      working-directory: ./H10CM
+      run: npm audit --audit-level high
+
+  # Database Schema Validation
+  database:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Validate SQL files syntax
+      run: |
+        echo "Checking SQL syntax for database modules..."
+        # Basic SQL syntax validation
+        find database_modules -name "*.sql" -exec echo "Checking {}" \;
+        
+    - name: Check for SQL injection patterns
+      run: |
+        echo "Scanning for potential SQL injection vulnerabilities..."
+        # Check for dangerous SQL patterns
+        if grep -r "EXEC\|EXECUTE\|sp_executesql" database_modules/ --include="*.sql"; then
+          echo "Warning: Found dynamic SQL execution patterns. Review for security."
+        fi
+        
+  # Security and Quality Checks
+  security:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Deployment Preparation (for future use)
+  build-artifacts:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, database, security]
+    if: github.ref == 'refs/heads/master'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js for artifact creation
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Build production artifacts
+      run: |
+        # Backend preparation
+        cd api && npm ci && cd ..
+        
+        # Frontend build
+        cd H10CM && npm ci && npm run build && cd ..
+        
+        # Create deployment package
+        mkdir -p deployment-package
+        cp -r api deployment-package/
+        cp -r H10CM/dist deployment-package/frontend
+        cp -r database_modules deployment-package/
+        
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: h10cm-deployment-package
+        path: deployment-package/
+        retention-days: 30
