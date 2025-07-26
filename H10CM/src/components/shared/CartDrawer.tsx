@@ -52,7 +52,7 @@ const CartDrawer: React.FC = () => {
 
   const handleQuantityChange = useCallback(
     (cartItemId: string, newQuantity: number) => {
-      // Don't remove item if quantity is 0 (allow temporary 0 state)
+      // Allow any non-negative quantity during editing
       if (newQuantity >= 0) {
         updateItemQuantity(cartItemId, newQuantity);
       }
@@ -60,22 +60,25 @@ const CartDrawer: React.FC = () => {
     [updateItemQuantity],
   );
 
-  const handleCostChange = useCallback(
-    (cartItemId: string, newCost: string) => {
-      const cost = parseFloat(newCost) || 0;
-      updateItemCost(cartItemId, cost);
-    },
-    [updateItemCost],
-  );
-
   const handleBulkSubmit = async () => {
     setIsSubmitting(true);
     setSubmitResult(null);
 
     try {
-      const newItems = useCartStore.getState().getNewItems();
-      const reorderItems = useCartStore.getState().getReorderItems();
-      const adjustmentItems = useCartStore.getState().getAdjustmentItems();
+      // Filter out any items with 0 quantity before processing
+      const validItems = items.filter((item) => item.quantity > 0);
+
+      if (validItems.length === 0) {
+        setSubmitResult(
+          'No valid items to submit. Please ensure all items have quantity greater than 0.',
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      const newItems = validItems.filter((item) => item.type === 'new');
+      const reorderItems = validItems.filter((item) => item.type === 'reorder');
+      const adjustmentItems = validItems.filter((item) => item.type === 'adjustment');
 
       let allSuccessful = true;
       const errors: string[] = [];
@@ -223,101 +226,183 @@ const CartDrawer: React.FC = () => {
     }
   };
 
-  const CartItemRow: React.FC<{ item: CartItem }> = ({ item }) => (
-    <ListItem
-      sx={{
-        flexDirection: 'column',
-        alignItems: 'stretch',
-        border: `1px solid ${theme.palette.divider}`,
-        borderRadius: 1,
-        mb: 1,
-        backgroundColor: alpha(theme.palette.background.paper, 0.8),
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', width: '100%', mb: 1 }}>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="subtitle2" fontWeight={600}>
-            {cartHelpers.getItemDisplayName(item)}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-            <Chip
-              label={
-                item.type === 'new'
-                  ? 'New Item'
-                  : item.type === 'reorder'
-                  ? 'Reorder'
-                  : `${item.adjustment_type === 'add' ? 'Add' : 'Remove'} Stock`
-              }
-              color={
-                item.type === 'new'
-                  ? 'primary'
-                  : item.type === 'reorder'
-                  ? 'secondary'
-                  : item.adjustment_type === 'add'
-                  ? 'success'
-                  : 'error'
-              }
-              size="small"
-            />
-            <Chip label={item.unit_of_measure} variant="outlined" size="small" />
-          </Box>
-          {item.description && (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              {item.description}
-            </Typography>
-          )}
-          {item.type === 'reorder' && item.current_stock_level !== undefined && (
-            <Typography variant="caption" color="text.secondary">
-              Current Stock: {item.current_stock_level}
-            </Typography>
-          )}
-        </Box>
-        <IconButton onClick={() => removeItem(item.id)} size="small" color="error">
-          <DeleteIcon fontSize="small" />
-        </IconButton>
-      </Box>
+  const CartItemRow: React.FC<{ item: CartItem }> = ({ item }) => {
+    // Local state for quantity input to prevent focus loss
+    const [localQuantity, setLocalQuantity] = useState(item.quantity.toString());
+    const [isEditing, setIsEditing] = useState(false);
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <IconButton
-            size="small"
-            onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-            disabled={item.quantity <= 1}
-          >
-            <RemoveIcon fontSize="small" />
+    // Local state for cost input to prevent focus loss
+    const [localCost, setLocalCost] = useState((item.estimated_cost || 0).toString());
+    const [isCostEditing, setIsCostEditing] = useState(false);
+
+    // Update local state when item quantity changes externally (e.g., from buttons)
+    React.useEffect(() => {
+      if (!isEditing) {
+        setLocalQuantity(item.quantity.toString());
+      }
+    }, [item.quantity, isEditing]);
+
+    // Update local state when item cost changes externally
+    React.useEffect(() => {
+      if (!isCostEditing) {
+        setLocalCost((item.estimated_cost || 0).toString());
+      }
+    }, [item.estimated_cost, isCostEditing]);
+
+    const handleQuantityInputChange = (value: string) => {
+      setLocalQuantity(value);
+      setIsEditing(true);
+
+      // DON'T update store immediately - only update local state
+      // Store will be updated on blur to prevent focus loss during typing
+    };
+
+    const handleQuantityInputBlur = () => {
+      setIsEditing(false);
+      const finalQuantity = parseInt(localQuantity) || 0;
+
+      // If quantity is 0 when user finishes editing, remove the item
+      if (finalQuantity === 0) {
+        removeItem(item.id);
+      } else {
+        // Ensure store has the correct final value
+        updateItemQuantity(item.id, finalQuantity);
+        setLocalQuantity(finalQuantity.toString());
+      }
+    };
+
+    const handleQuantityKeyPress = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        (e.target as HTMLInputElement).blur();
+      }
+    };
+
+    const handleCostInputChange = (value: string) => {
+      setLocalCost(value);
+      setIsCostEditing(true);
+
+      // DON'T update store immediately - only update local state
+      // Store will be updated on blur to prevent focus loss during typing
+    };
+
+    const handleCostInputBlur = () => {
+      setIsCostEditing(false);
+      const finalCost = parseFloat(localCost) || 0;
+
+      // Update store with final cost value
+      updateItemCost(item.id, finalCost);
+      setLocalCost(finalCost.toString());
+    };
+
+    const handleCostKeyPress = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        (e.target as HTMLInputElement).blur();
+      }
+    };
+
+    return (
+      <ListItem
+        sx={{
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          border: `1px solid ${theme.palette.divider}`,
+          borderRadius: 1,
+          mb: 1,
+          backgroundColor: alpha(theme.palette.background.paper, 0.8),
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', width: '100%', mb: 1 }}>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" fontWeight={600}>
+              {cartHelpers.getItemDisplayName(item)}
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+              <Chip
+                label={
+                  item.type === 'new'
+                    ? 'New Item'
+                    : item.type === 'reorder'
+                    ? 'Reorder'
+                    : `${item.adjustment_type === 'add' ? 'Add' : 'Remove'} Stock`
+                }
+                color={
+                  item.type === 'new'
+                    ? 'primary'
+                    : item.type === 'reorder'
+                    ? 'secondary'
+                    : item.adjustment_type === 'add'
+                    ? 'success'
+                    : 'error'
+                }
+                size="small"
+              />
+              <Chip label={item.unit_of_measure} variant="outlined" size="small" />
+            </Box>
+            {item.description && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {item.description}
+              </Typography>
+            )}
+            {item.type === 'reorder' && item.current_stock_level !== undefined && (
+              <Typography variant="caption" color="text.secondary">
+                Current Stock: {item.current_stock_level}
+              </Typography>
+            )}
+          </Box>
+          <IconButton onClick={() => removeItem(item.id)} size="small" color="error">
+            <DeleteIcon fontSize="small" />
           </IconButton>
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton
+              size="small"
+              onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+              disabled={item.quantity <= 1}
+            >
+              <RemoveIcon fontSize="small" />
+            </IconButton>
+            <TextField
+              size="small"
+              type="number"
+              value={localQuantity}
+              onChange={(e) => handleQuantityInputChange(e.target.value)}
+              onBlur={handleQuantityInputBlur}
+              onKeyPress={handleQuantityKeyPress}
+              sx={{ width: 80 }}
+              inputProps={{ min: 0, style: { textAlign: 'center' } }}
+            />
+            <IconButton
+              size="small"
+              onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+            >
+              <AddIcon fontSize="small" />
+            </IconButton>
+          </Box>
+
           <TextField
             size="small"
+            label="Est. Cost"
             type="number"
-            value={item.quantity}
-            onChange={(e) => handleQuantityChange(item.id, parseInt(e.target.value) || 0)}
-            sx={{ width: 80 }}
-            inputProps={{ min: 1, style: { textAlign: 'center' } }}
+            value={localCost}
+            onChange={(e) => handleCostInputChange(e.target.value)}
+            onBlur={handleCostInputBlur}
+            onKeyPress={handleCostKeyPress}
+            sx={{ width: 100 }}
+            inputProps={{ min: 0, step: 0.01 }}
+            InputProps={{
+              startAdornment: <Typography variant="body2">$</Typography>,
+            }}
           />
-          <IconButton size="small" onClick={() => handleQuantityChange(item.id, item.quantity + 1)}>
-            <AddIcon fontSize="small" />
-          </IconButton>
+
+          <Typography variant="body2" fontWeight={500}>
+            {cartHelpers.formatCurrency((item.estimated_cost || 0) * item.quantity)}
+          </Typography>
         </Box>
-
-        <TextField
-          size="small"
-          label="Est. Cost"
-          type="number"
-          value={item.estimated_cost || ''}
-          onChange={(e) => handleCostChange(item.id, e.target.value)}
-          sx={{ width: 100 }}
-          inputProps={{ min: 0, step: 0.01 }}
-          InputProps={{
-            startAdornment: <Typography variant="body2">$</Typography>,
-          }}
-        />
-
-        <Typography variant="body2" fontWeight={500}>
-          {cartHelpers.formatCurrency((item.estimated_cost || 0) * item.quantity)}
-        </Typography>
-      </Box>
-    </ListItem>
-  );
+      </ListItem>
+    );
+  };
 
   return (
     <Drawer

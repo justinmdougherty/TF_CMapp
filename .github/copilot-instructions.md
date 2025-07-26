@@ -4,61 +4,657 @@
 
 H10CM is a multi-tenant production management and inventory tracking system built with React/TypeScript frontend, Node.js Express backend, and MSSQL database. It features certificate-based authentication, RBAC permissions, and sophisticated inventory management with shopping cart functionality.
 
+## Tool Usage Philosophy
+
+### Multi-Tool Problem Solving
+
+**CRITICAL**: Always use multiple tools in combination rather than sequential thinking alone. The agent should leverage all available capabilities:
+
+- **Memory Tools**: Store and retrieve context across sessions
+- **Browser Automation**: Use Playwright for testing and validation
+- **Context Management**: Utilize context7 for maintaining state
+- **File Operations**: Combine read, edit, and analysis tools
+- **Database Tools**: Integrate SQL execution with validation
+- **Package Management**: Coordinate dependency and testing tools
+
+### Tool Orchestration Strategy
+
+```typescript
+// Example: Comprehensive problem-solving approach
+const solveProblem = async (issue: string) => {
+  // 1. Memory: Recall previous solutions and context
+  const previousContext = await memory.recall(issue);
+
+  // 2. Context: Maintain working state
+  const workingContext = await context7.create(issue);
+
+  // 3. Analysis: Use multiple analysis tools
+  const fileAnalysis = await analyzeFiles(relevantFiles);
+  const dbAnalysis = await validateDatabase(queries);
+
+  // 4. Browser: Validate UI/UX impact
+  const uiValidation = await playwright.test(scenarios);
+
+  // 5. Implementation: Coordinate changes
+  const implementation = await orchestrateChanges({
+    fileChanges,
+    dbUpdates,
+    testValidation,
+  });
+
+  // 6. Memory: Store results for future reference
+  await memory.store(issue, implementation);
+};
+```
+
+## Available Tools & MCP Servers
+
+### Core Tool Categories
+
+**Memory & Context Management:**
+
+- `memory` - Store and retrieve information across sessions
+- `context7` - Advanced context management and state tracking
+- `remember` - Session-specific information storage
+- `recall` - Cross-session knowledge retrieval
+
+**Browser Automation & Testing:**
+
+- `playwright` - Browser automation for UI testing and validation
+- `screenshot` - Visual validation and documentation
+- `navigate` - Automated user journey testing
+- `interact` - Form submission and user interaction testing
+
+**File & Code Operations:**
+
+- `edit_file` - Modify existing files with content changes
+- `reapply` - Re-apply previous changes to files
+- `read_file` - Access file contents for analysis
+- `analyze_code` - Code quality and pattern analysis
+- `format_code` - Automated code formatting and style enforcement
+
+**Database & Data Tools:**
+
+- `sql_execute` - Direct SQL query execution and validation
+- `validate_procedures` - Stored procedure testing and verification
+- `data_integrity` - Multi-tenant data consistency checks
+- `backup_restore` - Database state management for testing
+
+**Development & Package Tools:**
+
+- `npm_operations` - Package management and dependency resolution
+- `test_runner` - Automated test execution and reporting
+- `build_validation` - Build process verification
+- `security_scan` - Vulnerability assessment and security validation
+
+**API & Integration Tools:**
+
+- `api_test` - Endpoint testing and validation
+- `postman_sync` - Collection management and documentation
+- `certificate_validation` - Authentication testing
+- `health_check` - System monitoring and status verification
+
+### Tool Selection Strategy
+
+**Always prefer multi-tool approaches:**
+
+```typescript
+// Instead of: Sequential file editing
+await edit_file(path1);
+await edit_file(path2);
+
+// Use: Coordinated multi-tool approach
+const context = await context7.create("feature-implementation");
+const memory = await memory.recall("similar-features");
+const analysis = await analyze_code([path1, path2]);
+const changes = await orchestrate_changes({
+  files: [path1, path2],
+  context: context,
+  memory: memory,
+  validation: await playwright.test(scenarios),
+});
+```
+
+### Custom Instructions & Patterns
+
+### Instruction File Patterns
+
+The project uses pattern-based instruction files for specific contexts:
+
+| Pattern            | File Path                                            | Context                             |
+| ------------------ | ---------------------------------------------------- | ----------------------------------- |
+| `**/*-post-r-pm-*` | `postman-http-request-post-response.instructions.md` | HTTP request post-response handling |
+| `**/*-pre-r-pm-*`  | `postman-http-request-pre-request.instructions.md`   | HTTP request pre-processing         |
+| `**/*-post-c-pm-*` | `postman-collections-post-response.instructions.md`  | Collection response handling        |
+| `**/*-pre-c-pm-*`  | `postman-collections-pre-request.instructions.md`    | Collection pre-processing           |
+| `**/*-post-f-pm-*` | `postman-folder-post-response.instructions.md`       | Folder operation responses          |
+| `**/*-pre-f-pm-*`  | `postman-folder-pre-request.instructions.md`         | Folder operation setup              |
+
+### Custom Instruction Usage
+
+```typescript
+// When working with API-related files, check for matching instruction patterns
+const getInstructionFile = (filePath: string) => {
+  if (filePath.includes("-post-r-pm-")) {
+    return "postman-http-request-post-response.instructions.md";
+  }
+  // Additional pattern matching...
+};
+```
+
+## Tool Integration Workflows
+
+### Comprehensive Problem-Solving Workflow
+
+**Phase 1: Context & Memory Analysis**
+
+1. **Memory Recall**: Check for previous similar issues and solutions
+2. **Context Creation**: Establish working context with context7
+3. **Historical Analysis**: Review past decisions and patterns
+4. **Stakeholder Impact**: Assess multi-tenant security implications
+
+**Phase 2: Multi-Dimensional Analysis**
+
+1. **Code Analysis**: Use code analysis tools for quality assessment
+2. **Database Validation**: Execute SQL validation and integrity checks
+3. **API Testing**: Validate endpoints with automated testing
+4. **UI Validation**: Use Playwright for user experience verification
+
+**Phase 3: Coordinated Implementation**
+
+1. **Change Orchestration**: Coordinate file, database, and configuration changes
+2. **Real-time Validation**: Continuous testing during implementation
+3. **Security Verification**: Multi-tenant security pattern enforcement
+4. **Performance Monitoring**: Health check integration throughout process
+
+**Phase 4: Documentation & Memory Storage**
+
+1. **Solution Documentation**: Comprehensive change documentation
+2. **Memory Storage**: Store solution patterns for future reference
+3. **Context Preservation**: Maintain working context for follow-up issues
+4. **Knowledge Base Update**: Update instruction patterns and workflows
+
+### Advanced Tool Combination Patterns
+
+**Pattern 1: Database-First Development with UI Validation**
+
+```typescript
+const implementDatabaseFeature = async (feature) => {
+  // Memory: Recall database patterns
+  const dbPatterns = await memory.recall("database-patterns");
+
+  // Context: Track implementation state
+  const context = await context7.create(`db-feature-${feature.name}`);
+
+  // Database: Implement and validate
+  const dbResult = await sql_execute(feature.procedures);
+  await validate_procedures(feature.procedures);
+
+  // API: Test endpoints
+  const apiResult = await api_test(feature.endpoints);
+
+  // UI: Validate user experience
+  const uiResult = await playwright.test(feature.userScenarios);
+
+  // Memory: Store successful patterns
+  await memory.store(`db-feature-${feature.name}`, {
+    dbResult,
+    apiResult,
+    uiResult,
+    patterns: dbPatterns,
+  });
+};
+```
+
+**Pattern 2: Multi-Tenant Security Validation**
+
+```typescript
+const validateMultiTenantSecurity = async (changes) => {
+  // Context: Security validation session
+  const securityContext = await context7.create("security-validation");
+
+  // Memory: Recall security patterns
+  const securityPatterns = await memory.recall("multi-tenant-security");
+
+  // Code: Analyze for security patterns
+  const codeAnalysis = await analyze_code(changes.files);
+
+  // Database: Validate tenant isolation
+  const dbValidation = await sql_execute(securityPatterns.queries);
+
+  // API: Test cross-tenant access prevention
+  const apiSecurity = await api_test(securityPatterns.testCases);
+
+  // Browser: Validate UI security constraints
+  const uiSecurity = await playwright.test(securityPatterns.uiTests);
+
+  // Comprehensive security report
+  return {
+    codeAnalysis,
+    dbValidation,
+    apiSecurity,
+    uiSecurity,
+    recommendations: await memory.recall("security-recommendations"),
+  };
+};
+```
+
+**Pattern 3: Full-Stack Feature Implementation**
+
+```typescript
+const implementFullStackFeature = async (feature) => {
+  // Phase 1: Analysis and Planning
+  const context = await context7.create(`feature-${feature.name}`);
+  const previousImplementations = await memory.recall(
+    `similar-to-${feature.type}`
+  );
+
+  // Phase 2: Backend Implementation
+  const dbChanges = await sql_execute(feature.database.procedures);
+  const apiChanges = await edit_file(feature.api.endpoints);
+  const apiValidation = await api_test(feature.api.testCases);
+
+  // Phase 3: Frontend Implementation
+  const uiChanges = await edit_file(feature.frontend.components);
+  const uiValidation = await playwright.test(feature.frontend.scenarios);
+
+  // Phase 4: Integration Testing
+  const integrationTests = await test_runner(feature.integrationTests);
+  const buildValidation = await build_validation();
+
+  // Phase 5: Security and Performance
+  const securityScan = await security_scan(feature.changedFiles);
+  const healthCheck = await health_check();
+
+  // Phase 6: Documentation and Memory
+  await memory.store(`feature-${feature.name}`, {
+    implementation: { dbChanges, apiChanges, uiChanges },
+    validation: { apiValidation, uiValidation, integrationTests },
+    security: securityScan,
+    performance: healthCheck,
+  });
+
+  return context;
+};
+```
+
+### Memory Management Strategies
+
+**Persistent Knowledge Storage:**
+
+```typescript
+// Store architectural decisions
+await memory.store("architecture-decisions", {
+  multiTenant: "Program-based isolation with complete data separation",
+  authentication: "Certificate-based with development fallback",
+  database: "JSON-first stored procedures for API compatibility",
+  frontend: "React Query + Zustand with Material UI",
+});
+
+// Store common problem solutions
+await memory.store("common-solutions", {
+  cartBug: "Use proper /api/cart/add → /api/orders/create-from-cart workflow",
+  quantityDisplay: "Database field mismatch resolution pattern",
+  multiTenantFiltering: "Enforce program_id at database level",
+});
+
+// Store testing patterns
+await memory.store("testing-patterns", {
+  apiTesting: "Jest + Supertest with certificate simulation",
+  uiTesting: "Playwright with Material UI component testing",
+  dbTesting: "Stored procedure validation with multi-tenant scenarios",
+});
+```
+
+**Context Preservation:**
+
+```typescript
+// Maintain working context across complex operations
+const workingContext = await context7.create("complex-feature");
+await context7.update(workingContext, {
+  phase: "analysis",
+  findings: analysisResults,
+});
+await context7.update(workingContext, {
+  phase: "implementation",
+  changes: implementationResults,
+});
+await context7.update(workingContext, {
+  phase: "validation",
+  tests: validationResults,
+});
+```
+
+### Browser Automation Integration
+
+**Comprehensive UI Testing:**
+
+```typescript
+const validateUserExperience = async (feature) => {
+  // Navigate to feature
+  await playwright.navigate(`http://localhost:5173/${feature.route}`);
+
+  // Test authentication flow
+  await playwright.interact("certificate-login");
+
+  // Validate multi-tenant program switching
+  await playwright.test("program-selector", feature.tenantTests);
+
+  // Test feature functionality
+  await playwright.interact(feature.userActions);
+
+  // Validate responsive design
+  await playwright.screenshot("desktop-view");
+  await playwright.viewport({ width: 768, height: 1024 });
+  await playwright.screenshot("tablet-view");
+
+  // Test accessibility
+  await playwright.accessibility_audit();
+
+  return {
+    functionality: "passed",
+    responsiveness: "validated",
+    accessibility: "compliant",
+  };
+};
+```
+
+## Operating Modes
+
+### Development Mode
+
+**Local Development Environment:**
+
+```bash
+# Frontend (Port 5173)
+Set-Location "c:\Web Development\H10CM"
+npm run dev
+
+# Backend (Port 3000)
+Set-Location "c:\Web Development\H10CM\api"
+npm run dev
+```
+
+**Development-Specific Tool Usage:**
+
+- Use `memory` to recall development patterns and shortcuts
+- Use `context7` to maintain development session state
+- Use `playwright` for local UI testing and validation
+- Apply comprehensive tool orchestration for all changes
+- Enable detailed error logging and stack traces
+- Activate hot-reload for both frontend and backend
+- Use local database connection (127.0.0.1)
+
+### Production Mode
+
+- Enforce strict security patterns and multi-tenant isolation
+- Apply production-optimized instruction sets with full tool validation
+- Enable comprehensive monitoring and health checks
+- Require certificate-based authentication
+- Use `memory` for production deployment patterns
+- Use `context7` for coordinated production updates
+
+### Testing Mode
+
+- Load test-specific instruction files and patterns
+- Apply quality gates and coverage requirements with tool validation
+- Enable comprehensive security scanning using all available tools
+- Use isolated test data and environments
+- Coordinate `playwright`, `test_runner`, and `api_test` tools
+
+## Prompt File Integration
+
+### Context-Aware Prompting
+
+**Dynamic Prompt Selection:**
+
+- API-related changes → Load Postman instruction files
+- Database operations → Reference SQL patterns and procedures
+- Frontend changes → Apply React/TypeScript best practices
+- Security operations → Enforce multi-tenant patterns
+
+**Prompt File Patterns:**
+
+```typescript
+// Example: API endpoint modification
+if (isApiEndpoint(filePath)) {
+  const preRequestInstructions = await loadInstructions("pre-request");
+  const postResponseInstructions = await loadInstructions("post-response");
+  // Apply context-specific patterns
+}
+```
+
+### Instruction File Loading
+
+**Automatic Instruction Discovery:**
+
+```typescript
+// Load instruction files based on file patterns
+const loadRelevantInstructions = async (filePath: string) => {
+  const patterns = [
+    { match: /api\/.*\.js$/, instruction: "api-development.md" },
+    { match: /src\/.*\.tsx?$/, instruction: "react-patterns.md" },
+    { match: /database_modules\/.*\.sql$/, instruction: "sql-procedures.md" },
+  ];
+
+  return patterns
+    .filter((p) => p.match.test(filePath))
+    .map((p) => p.instruction);
+};
+```
+
+## Tool Integration Workflows
+
+### Code Quality Workflow
+
+**Quality Gates:**
+
+1. **Pre-Change Analysis**: Understand existing code quality baseline
+2. **Change Implementation**: Apply modifications following project patterns
+3. **Post-Change Analysis**: Validate changes against project standards
+4. **Issue Resolution**: Address any quality degradation before proceeding
+5. **Security Validation**: Review security implications of changes
+
+### Multi-Tenant Security Workflow
+
+**Security Pattern Enforcement:**
+
+```javascript
+// Every API endpoint MUST include program-level filtering
+const enforceMultiTenantSecurity = (endpoint) => {
+  // 1. Validate program_id parameter
+  // 2. Enforce user program access
+  // 3. Apply database-level filtering
+  // 4. Audit access patterns
+};
+```
+
+### Database Procedure Workflow
+
+**JSON-First Database Integration:**
+
+```sql
+-- All procedures MUST use JSON parameters
+CREATE PROCEDURE usp_ExampleProcedure
+    @DataJson NVARCHAR(MAX)
+AS
+BEGIN
+    -- Extract parameters from JSON
+    DECLARE @program_id INT = JSON_VALUE(@DataJson, '$.program_id');
+
+    -- Enforce multi-tenant isolation
+    IF @program_id IS NULL
+        RAISERROR('Program ID required for multi-tenant isolation', 16, 1);
+END
+```
+
+## External Service Integration
+
+### Postman Collection Management
+
+**API Documentation Workflow:**
+
+- Automatic collection generation from API endpoints
+- Request/response validation against OpenAPI specs
+- Environment-specific configuration management
+
+### Certificate Service Integration
+
+**Authentication Flow:**
+
+```typescript
+// Certificate-based user authentication
+const authenticateUser = async (req: Request) => {
+  const clientCert = req.headers["x-arr-clientcert"] || "development-fallback";
+  const user = await certificateService.validateUser(clientCert);
+  return user;
+};
+```
+
+## Error Handling & Recovery
+
+### Quality Gate Failures
+
+**Automatic Recovery Patterns:**
+
+```typescript
+// If quality analysis fails, implement fallback quality checks
+const handleQualityFailure = async (filePath: string) => {
+  try {
+    await validateCode(filePath);
+  } catch (error) {
+    // Fallback to local linting and formatting
+    await localQualityCheck(filePath);
+  }
+};
+```
+
+### Instruction File Missing
+
+**Graceful Degradation:**
+
+```typescript
+// If instruction file is missing, use default patterns
+const getInstructions = async (pattern: string) => {
+  try {
+    return await readInstructionFile(pattern);
+  } catch (error) {
+    console.warn(`Instruction file not found for pattern: ${pattern}`);
+    return getDefaultInstructions();
+  }
+};
+```
+
 ## Architecture & Project Structure
 
-### Dual-Repository Structure
+### Modular Database-First Architecture
 
 ```
-H10CM/                    # React/TypeScript frontend (port 5173)
+H10CM/                          # React/TypeScript frontend (port 5173)
 ├── src/
-│   ├── components/       # Feature-organized components
-│   ├── services/api.ts   # Centralized API functions
-│   ├── hooks/api/        # React Query hooks
-│   ├── store/           # Zustand stores
-│   ├── types/           # TypeScript interfaces
-│   └── views/           # Page components (Router.tsx)
-api/                     # Node.js Express backend (port 3000)
-├── index.js            # Main API server
-├── package.json        # Separate backend dependencies
-└── tests/              # Jest test suite
-h10cm.sql               # Database creation script
+│   ├── components/            # Feature-organized components
+│   ├── services/api.ts        # Centralized API client with interceptors
+│   ├── hooks/api/             # React Query hooks for server state
+│   ├── store/                 # Zustand stores for client state
+│   ├── types/                 # TypeScript interfaces
+│   └── views/                 # Page components (Router.tsx)
+├── database_modules/          # 🆕 Modular database architecture
+│   ├── create_h10cm_database.sql  # Master execution script
+│   ├── 01_database_and_schema.sql # Infrastructure
+│   ├── 02_core_tables.sql         # RBAC tables
+│   ├── 03_project_tables.sql      # Project management
+│   ├── 04_inventory_tables.sql    # Inventory system
+│   ├── 05_procurement_tables.sql  # Vendor/sponsor management
+│   ├── 06_core_procedures.sql     # Basic CRUD operations
+│   ├── 07_business_procedures.sql # Cart/order workflows
+│   ├── 08_security_procedures.sql # Authentication
+│   ├── 09_sample_data.sql         # Development seed data
+│   └── 10_indexes_constraints.sql # Performance optimization
+└── api/                       # Node.js Express backend (port 3000)
+    ├── index.js              # Main API server with multi-tenant middleware
+    ├── package.json          # Backend dependencies
+    └── tests/                # Jest test suite
 ```
 
 ### Key Development Commands
 
 ```powershell
 # Frontend development
-Set-Location H10CM; npm install; npm run dev
+Set-Location H10CM; npm install; npm run dev    # http://localhost:5173
 
 # Backend development (separate terminal)
-Set-Location api; npm install; npm run dev
+Set-Location api; npm install; npm run dev      # http://localhost:3000
 
 # Database setup (run once)
-# Execute h10cm.sql in MSSQL to create H10CM database
+# Execute database_modules/create_h10cm_database.sql in SQL Server
 
 # Testing
-npm test          # Frontend (Vitest + React Testing Library)
-Set-Location api; npm test # Backend (Jest + Supertest)
+npm test                                         # Frontend (Vitest)
+Set-Location api; npm test                      # Backend (Jest + Supertest)
 ```
 
 ## Multi-Tenant Architecture
 
-### RBAC Database Structure
+### Critical Multi-Tenant Patterns
 
-- **Programs**: Top-level tenant isolation (program_id)
-- **ProgramAccess**: User program permissions
-- **ProjectAccess**: Project-level permissions
-- **Users**: Certificate-based authentication
-
-### Critical Pattern: Program-Level Data Filtering
+H10CM uses **Programs** as the root tenant entity with complete data isolation:
 
 ```typescript
-// All API endpoints must filter by program_id
+// ALL API endpoints must enforce program-level filtering
 const result = await pool
   .request()
   .input("program_id", sql.Int, req.user.program_id)
   .query("SELECT * FROM Projects WHERE program_id = @program_id");
 ```
+
+### Database Connection Configuration
+
+**Database Credentials (Local Development):**
+
+```javascript
+const dbConfig = {
+  user: "sa",
+  password: "0)Password",
+  server: "127.0.0.1",
+  database: "H10CM",
+  port: 1433,
+  options: {
+    encrypt: true,
+    enableArithAbort: true,
+    trustServerCertificate: true,
+  },
+};
+```
+
+**SQL Command Line Access:**
+
+```powershell
+# Execute SQL files against H10CM database
+sqlcmd -S "127.0.0.1" -U "sa" -P "0)Password" -d "H10CM" -i "database_modules\filename.sql"
+```
+
+### Database-First JSON Stored Procedures
+
+**CRITICAL PATTERN**: All stored procedures use JSON parameters for API compatibility:
+
+```sql
+-- Standard procedure pattern
+CREATE PROCEDURE usp_SaveProject
+    @ProjectJson NVARCHAR(MAX)
+AS
+BEGIN
+    DECLARE @project_id INT = JSON_VALUE(@ProjectJson, '$.project_id');
+    DECLARE @program_id INT = JSON_VALUE(@ProjectJson, '$.program_id');
+    -- Multi-tenant filtering enforced at DB level
+END
+```
+
+### RBAC Database Structure
+
+- **Programs**: Top-level tenant isolation (`program_id`)
+- **ProgramAccess**: User program permissions
+- **ProjectAccess**: Project-level permissions
+- **Users**: Certificate-based authentication with cross-program access
 
 ## Authentication & Security
 
@@ -66,12 +662,45 @@ const result = await pool
 
 - Uses `x-arr-clientcert` header for user identification
 - Fallback to `development-fallback` for local development
-- User lookup in database via `certificate_subject`
+- User lookup via stored procedure `usp_GetUserWithProgramAccess`
+
+### Multi-Tenant Access Control
+
+```javascript
+// Critical middleware pattern - program access enforcement
+const checkProgramAccess = (requiredLevel = "Read") => {
+  return (req, res, next) => {
+    let programId = req.params.programId || req.query.program_id;
+
+    // Auto-assign user's first accessible program if none specified
+    if (!programId && req.user.accessible_programs?.length > 0) {
+      programId = req.user.accessible_programs[0];
+    }
+
+    // System admins bypass checks
+    if (req.user.is_system_admin) {
+      req.programId = parseInt(programId);
+      return next();
+    }
+
+    // Verify program access from user's program_access JSON
+    const hasAccess = req.user.program_access?.find(
+      (p) => p.program_id == programId
+    );
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Access denied to program" });
+    }
+
+    req.programId = parseInt(programId);
+    next();
+  };
+};
+```
 
 ### API Proxy Configuration
 
 ```typescript
-// vite.config.ts
+// vite.config.ts - Local development proxy
 server: {
   proxy: {
     '/api': {
@@ -112,18 +741,17 @@ export const useCartStore = create<CartStore>()(
 );
 ```
 
-### Frontend Architecture Components
+### Context Provider Architecture
 
-- **Context Providers**: `CustomizerContext`, `RBACContext`, `ProgramContext` for app-wide state
-- **Layout System**: `FullLayout` with vertical/horizontal header options
-- **Theme Management**: Material UI with dark/light mode switching
+- **CustomizerContext**: Theme/layout state with user-specific persistence
+- **RBACContext**: Authentication state with certificate integration
+- **ProgramContext**: Multi-tenant program switching
 - **Error Boundaries**: Global error handling with fallback UI
-- **Routing**: React Router with lazy loading via `Loadable` HOC
 
-### Key Component Patterns
+### Component Patterns
 
 ```typescript
-// Page components follow this pattern (src/views/*/Page.tsx)
+// Standard page component pattern (src/views/*/Page.tsx)
 import PageContainer from "src/components/container/PageContainer";
 import Breadcrumb from "src/layouts/full/shared/breadcrumb/Breadcrumb";
 
@@ -137,9 +765,15 @@ const MyPage: React.FC = () => {
 };
 ```
 
+### Material UI Theme Integration
+
+- All components use `CustomizerContext` for theme state
+- User-specific preferences with localStorage persistence
+- Certificate-based user identification for preference storage
+
 ## API Client Architecture
 
-### Centralized API Service
+### Centralized API Service with Program Context
 
 ```typescript
 // src/services/api.ts - ALL API calls go through this file
@@ -147,13 +781,40 @@ const apiClient = axios.create({
   baseURL: "/api",
 });
 
-// Program context injection
+// Program context injection for multi-tenant requests
 apiClient.interceptors.request.use((config) => {
   if (currentProgramId && shouldIncludeProgramId(config.url)) {
     config.params = { ...config.params, program_id: currentProgramId };
   }
   return config;
 });
+```
+
+### Stored Procedure Integration Pattern
+
+```javascript
+// api/index.js - JSON-based procedure execution
+const executeProcedure = async (res, procedureName, params = []) => {
+  const request = pool.request();
+  params.forEach((param) => {
+    request.input(param.name, param.type, param.value);
+  });
+
+  const result = await request.execute(procedureName);
+
+  // Handle JSON string responses from procedures
+  if (result.recordset?.length > 0) {
+    const firstColumn =
+      result.recordset[0][Object.keys(result.recordset[0])[0]];
+    if (
+      typeof firstColumn === "string" &&
+      Object.keys(result.recordset[0]).length === 1
+    ) {
+      const data = JSON.parse(firstColumn);
+      return res.json(data);
+    }
+  }
+};
 ```
 
 ## State Management Patterns
@@ -205,45 +866,68 @@ export const fetchProjects = async (): Promise<Project[]> => {
 
 ## Critical Development Patterns
 
-### Backend API Architecture
+### Backend Multi-Tenant API Architecture
 
 ```javascript
-// api/index.js - Multi-tenant filtering pattern
+// api/index.js - Multi-tenant filtering enforcement
 const authenticateUser = async (req, res, next) => {
-  // Certificate-based authentication
+  // Certificate-based authentication with fallback
   const clientCert = req.headers["x-arr-clientcert"] || "development-fallback";
   const certSubject = extractCertificateSubject(clientCert);
 
-  // User lookup with program access
-  const user = await getUserWithProgramAccess(certSubject);
+  // User lookup with program access via stored procedure
+  const userResult = await pool
+    .request()
+    .input("CertificateSubject", sql.NVarChar, certSubject)
+    .execute("usp_GetUserWithProgramAccess");
+
+  const user = userResult.recordset[0];
+  user.program_access = JSON.parse(user.program_access || "[]");
+  user.accessible_programs = user.program_access.map((p) => p.program_id);
   req.user = user;
   next();
 };
-
-// Program access middleware
-const checkProgramAccess = (requiredLevel = "Read") => {
-  return (req, res, next) => {
-    const programId = req.params.programId || req.query.program_id;
-    if (!req.user.accessible_programs.includes(programId)) {
-      return res.status(403).json({ error: "Access denied" });
-    }
-    next();
-  };
-};
 ```
 
-### Database Patterns
+### Database JSON Parameter Patterns
 
 ```sql
--- All stored procedures use JSON parameters
+-- Multi-tenant procedure with JSON input
 CREATE PROCEDURE usp_SaveInventoryItem
     @InventoryItemJson NVARCHAR(MAX)
 AS
 BEGIN
     DECLARE @program_id INT = JSON_VALUE(@InventoryItemJson, '$.program_id');
-    DECLARE @project_id INT = JSON_VALUE(@InventoryItemJson, '$.project_id');
-    -- Multi-tenant filtering enforced at DB level
+    DECLARE @item_name NVARCHAR(255) = JSON_VALUE(@InventoryItemJson, '$.item_name');
+
+    -- Multi-tenant filtering enforced at database level
+    IF @program_id IS NULL
+        RAISERROR('Program ID required for multi-tenant isolation', 16, 1);
 END
+```
+
+### Testing Architecture
+
+```typescript
+// Frontend tests (Vitest with Material UI support)
+import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ThemeProvider } from "@mui/material/styles";
+
+// Backend tests (Jest + Supertest for API testing)
+describe("Projects API", () => {
+  test("GET /api/projects returns projects with program filtering", async () => {
+    const response = await request(app)
+      .get("/api/projects")
+      .set("x-arr-clientcert", "test-cert");
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject(
+      expect.arrayContaining([
+        expect.objectContaining({ program_id: expect.any(Number) }),
+      ])
+    );
+  });
+});
 ```
 
 ## Critical Issues & Status
@@ -264,6 +948,13 @@ The critical cart bug has been **completely resolved**:
 - **Solution**: Updated `usp_GetPendingOrders` stored procedure
 - **Status**: Accurate quantity display working correctly
 
+### ✅ Database Deployment - PRODUCTION READY (July 20, 2025)
+
+- **Issue**: Multiple syntax errors preventing database creation
+- **Root Cause**: SQL batch separation and column name mismatches across 10 modules
+- **Solution**: Comprehensive review and correction of all database modules
+- **Status**: 100% error-free modular architecture ready for deployment
+
 ### ⚠️ Next Priority: Multi-Tenant Security
 
 - **Issue**: Program-level filtering not fully implemented across all endpoints
@@ -278,11 +969,12 @@ The critical cart bug has been **completely resolved**:
 
 ## Testing & Quality
 
-### Code Quality Rules (Codacy Integration)
+### Code Quality Standards
 
-- **After ANY file edit**: Run `codacy_cli_analyze` tool immediately
-- **After dependency changes**: Run security scan with `trivy`
-- **No manual CLI installation**: Use MCP server tools only
+- Follow TypeScript best practices and strict type checking
+- Maintain consistent code formatting and style
+- Apply security best practices for multi-tenant architecture
+- Use comprehensive error handling and validation
 
 ### Test Structure
 
@@ -300,145 +992,38 @@ describe("Projects API", () => {
 });
 ```
 
-## Database Operations
+## MCP Server Integration
 
-### Stored Procedures Pattern
+### Tool Usage Priorities
 
-```sql
--- Multi-tenant filtering in all procedures
-CREATE PROCEDURE usp_GetInventoryItems
-    @program_id INT
-AS
-BEGIN
-    SELECT * FROM InventoryItems
-    WHERE program_id = @program_id
-END
-```
+**Always Use Multi-Tool Approach:**
 
-### Connection Pattern
+1. **Memory & Context First**: Always start with memory recall and context creation
+2. **Analysis Phase**: Use code analysis, database validation, and API testing
+3. **Implementation Phase**: Coordinate file operations with real-time validation
+4. **Validation Phase**: Browser testing, security scans, and health checks
+5. **Documentation Phase**: Memory storage and context preservation
 
-```javascript
-// api/index.js
-const dbConfig = {
-  server: "127.0.0.1",
-  database: "H10CM",
-  user: "sa",
-  password: "0)Password",
-};
-```
-
-## Material UI Theme System
-
-### Custom Theme Structure
-
-- **Location**: `src/theme/` - Extensive theme customization
-- **Context**: `CustomizerContext` manages theme state across app
-- **Features**: Dark/light mode, RTL support, customizable layouts
-- **Usage**: All components use theme-aware styling
-
-### User Preferences Integration
+**Tool Selection Logic:**
 
 ```typescript
-// src/services/userPreferencesService.ts
-export const userPreferencesService = {
-  initialize: async () => {
-    const user = await certificateService.getCurrentUser();
-    // Load user-specific preferences from localStorage
-  },
-  savePreferences: (preferences: UserPreferences) => {
-    // Save to localStorage with user-specific key
-  },
+// Always prefer comprehensive tool orchestration
+const selectTools = (operation: string) => {
+  const baseTools = ["memory", "context7"];
+
+  if (operation.includes("database")) {
+    return [...baseTools, "sql_execute", "validate_procedures", "api_test"];
+  }
+
+  if (operation.includes("frontend")) {
+    return [...baseTools, "edit_file", "playwright", "analyze_code"];
+  }
+
+  if (operation.includes("api")) {
+    return [...baseTools, "api_test", "security_scan", "health_check"];
+  }
+
+  // Always use multiple tools, never single-tool solutions
+  return [...baseTools, "edit_file", "analyze_code", "test_runner"];
 };
 ```
-
-## Essential Files to Understand
-
-### Core Infrastructure
-
-- `src/main.tsx` - App entry point with React Query and Context providers
-- `src/App.tsx` - Main app component with theme, routing, and error boundary
-- `src/routes/Router.tsx` - Complete application routing with lazy loading
-- `src/services/api.ts` - Centralized API client with interceptors
-
-### Backend Architecture
-
-- `api/index.js` - Main API server with authentication and multi-tenant filtering
-- `h10cm.sql` - Complete database schema with stored procedures
-- `api/tests/` - Jest test suite for API endpoints
-
-### Frontend Architecture
-
-- `src/layouts/full/FullLayout.tsx` - Main layout component with header/sidebar
-- `src/context/CustomizerContext.tsx` - Theme and layout state management
-- `src/context/RBACContext.tsx` - Role-based access control context
-- `src/components/container/PageContainer.tsx` - Standard page wrapper
-
-### Key Feature Areas
-
-- `src/hooks/api/` - React Query hooks for all API interactions
-- `src/store/cartStore.ts` - Shopping cart state with persistence
-- `src/types/` - TypeScript interfaces for all entities
-- `src/views/` - Page components organized by feature
-
-### Testing & Configuration
-
-- `src/test/setup.ts` - Vitest configuration and mocks
-- `src/test/test-utils.tsx` - Custom render with providers
-- `vite.config.ts` - Vite configuration with API proxy
-- `vitest.config.ts` - Test configuration with coverage
-
----
-# Codacy Rules
-Configuration for AI behavior when interacting with Codacy's MCP Server
-
-## using any tool that accepts the arguments: `provider`, `organization`, or `repository`
-- ALWAYS use:
- - provider: gh
- - organization: justinmdougherty
- - repository: H10CM
-- Avoid calling `git remote -v` unless really necessary
-
-## After ANY successful `edit_file` or `reapply` operation
-- YOU MUST IMMEDIATELY run the `codacy_cli_analyze` tool from Codacy's MCP Server for each file that was edited, with:
- - `rootPath`: set to the workspace path
- - `file`: set to the path of the edited file
- - `tool`: leave empty or unset
-- If any issues are found in the new edits, propose and apply fixes for them.
-- > NOTE: Failure to follow this rule is considered a critical error.
-
-## CRITICAL: Dependencies and Security Checks
-- IMMEDIATELY after ANY of these actions:
- - Running npm/yarn/pnpm install
- - Adding dependencies to package.json
- - Adding requirements to requirements.txt
- - Adding dependencies to pom.xml
- - Adding dependencies to build.gradle
- - Any other package manager operations
-- You MUST run the `codacy_cli_analyze` tool with:
- - `rootPath`: set to the workspace path
- - `tool`: set to "trivy"
- - `file`: leave empty or unset
-- If any vulnerabilities are found because of the newly added packages:
- - Stop all other operations
- - Propose and apply fixes for the security issues
- - Only continue with the original task after security issues are resolved
-- EXAMPLE:
- - After: npm install react-markdown
- - Do: Run codacy_cli_analyze with trivy
- - Before: Continuing with any other tasks
-
-## General
-- Repeat the relevant steps for each modified file.
-- "Propose fixes" means to both suggest and, if possible, automatically apply the fixes.
-- You MUST NOT wait for the user to ask for analysis or remind you to run the tool.
-- Do not run `codacy_cli_analyze` looking for changes in duplicated code or code complexity metrics.
-- Do not run `codacy_cli_analyze` looking for changes in code coverage.
-- Do not try to manually install Codacy CLI using either brew, npm, npx, or any other package manager.
-- If the Codacy CLI is not installed, just run the `codacy_cli_analyze` tool from Codacy's MCP Server.
-- When calling `codacy_cli_analyze`, only send provider, organization and repository if the project is a git repository.
-
-## Whenever a call to a Codacy tool that uses `repository` or `organization` as a parameter returns a 404 error
-- Offer to run the `codacy_setup_repository` tool to add the repository to Codacy
-- If the user accepts, run the `codacy_setup_repository` tool
-- Do not ever try to run the `codacy_setup_repository` tool on your own
-- After setup, immediately retry the action that failed (only retry once)

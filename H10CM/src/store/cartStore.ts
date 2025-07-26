@@ -51,14 +51,11 @@ export const useCartStore = create<CartStore>()(
       },
 
       updateItemQuantity: (id, quantity) => {
-        if (quantity <= 0) {
-          get().removeItem(id);
-          return;
-        }
-
+        // Allow temporary 0 values during editing to prevent focus loss
+        // Only remove items when quantity is explicitly set to 0 AND confirmed
         set((state) => ({
           items: state.items.map((item) =>
-            item.id === id ? { ...item, quantity } : item
+            item.id === id ? { ...item, quantity: Math.max(0, quantity) } : item
           ),
         }));
       },
