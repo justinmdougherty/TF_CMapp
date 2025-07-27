@@ -256,3 +256,35 @@ H10CM/src/views/apps/calendar/
 # Template demo components
 H10CM/src/components/apps/notes/
 H10CM/src/components/apps/tickets/
+
+# =============================================
+# DEVELOPMENT & TEST FILES TO EXCLUDE
+# =============================================
+
+# AI Assistant memory (local state)
+.memory/session.json
+
+# Development test files
+test_*.json
+test_*.js
+*_test.json
+*_test.js
+
+# Temporary development files
+temp_*.md
+temp_*.sql
+temp_*.js
+api/temp_*.txt
+
+# API development files
+api/.env.example
+api/test-*.js
+api/utils/ 
+
+# Development SQL procedures (not production)
+add_delete_order_procedure.sql
+
+# Package lock files (auto-generated, can cause conflicts)
+package-lock.json
+H10CM/package-lock.json
+api/package-lock.json

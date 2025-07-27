@@ -231,7 +231,14 @@ const AddProjectModal: React.FC<AddProjectModalProps> = ({ open, onClose, onSucc
       });
 
       console.log('Project created successfully:', createdProject);
-      const projectId = createdProject.project_id.toString();
+
+      // Handle different response formats - API might return array or object
+      const projectData = Array.isArray(createdProject) ? createdProject[0] : createdProject;
+      if (!projectData || !projectData.project_id) {
+        throw new Error('Invalid project data returned from API');
+      }
+
+      const projectId = projectData.project_id.toString();
 
       // 2. Create attribute definitions
       console.log('Creating attributes:', attributes);

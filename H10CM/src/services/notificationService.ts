@@ -134,6 +134,62 @@ class NotificationService {
     toast.dismiss()
   }
 
+  // Automatic error report notification
+  automaticErrorReport(issueNumber: string, errorType: string, options?: NotificationOptions) {
+    return toast(`🤖 Error automatically reported: GitHub issue #${issueNumber}`, {
+      duration: options?.duration || 6000,
+      position: options?.position || this.defaultOptions.position,
+      className: options?.className,
+      icon: '🐛',
+      id: options?.id,
+      style: {
+        background: '#f8f9fa',
+        color: '#495057',
+        border: '1px solid #dee2e6',
+        borderRadius: '8px',
+        padding: '16px',
+        fontSize: '14px',
+        fontWeight: 500,
+        maxWidth: '450px',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+        ...options?.style
+      }
+    })
+  }
+
+  // Enhanced automatic error notification with more context
+  automaticErrorReportWithContext(issueNumber: string, errorType: string, severity: string, username?: string, options?: NotificationOptions) {
+    const severityEmoji = {
+      low: '🟡',
+      medium: '🟠', 
+      high: '🔴',
+      critical: '🚨'
+    }[severity] || '🔵';
+
+    const userContext = username ? ` (User: ${username})` : '';
+    const message = `${severityEmoji} Auto-reported ${errorType} error: Issue #${issueNumber}${userContext}`;
+
+    return toast(message, {
+      duration: options?.duration || 8000,
+      position: options?.position || this.defaultOptions.position,
+      className: options?.className,
+      icon: '🤖',
+      id: options?.id,
+      style: {
+        background: severity === 'critical' || severity === 'high' ? '#fee2e2' : '#f8f9fa',
+        color: severity === 'critical' || severity === 'high' ? '#dc2626' : '#495057',
+        border: severity === 'critical' || severity === 'high' ? '1px solid #fca5a5' : '1px solid #dee2e6',
+        borderRadius: '8px',
+        padding: '16px',
+        fontSize: '14px',
+        fontWeight: 500,
+        maxWidth: '500px',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+        ...options?.style
+      }
+    })
+  }
+
   // Custom notification with full control
   custom(message: string, type: NotificationType, options?: NotificationOptions) {
     switch (type) {

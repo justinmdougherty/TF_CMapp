@@ -14,6 +14,7 @@ import {
   CircularProgress,
   useTheme,
   alpha,
+  Tooltip,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -22,6 +23,9 @@ import {
   Remove as RemoveIcon,
   ShoppingCart as CartIcon,
   Receipt as ReceiptIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { useCartStore, cartHelpers } from 'src/store/cartStore';
 import { CartItem } from 'src/types/Cart';
@@ -30,7 +34,9 @@ import {
   bulkAdjustInventoryStock,
   addToCart,
   createOrderFromCart,
+  checkInventoryStock,
 } from 'src/services/api';
+import { useInventoryStock, canOrderQuantity } from 'src/hooks/api/useStockHooks';
 
 const CartDrawer: React.FC = () => {
   const theme = useTheme();
@@ -74,6 +80,39 @@ const CartDrawer: React.FC = () => {
         );
         setIsSubmitting(false);
         return;
+      }
+
+      // Check stock validation for reorder items before submitting
+      const stockValidationErrors: string[] = [];
+
+      for (const item of validItems) {
+        if (item.type === 'reorder' && item.inventory_item_id) {
+          try {
+            const stockData = await checkInventoryStock(item.inventory_item_id);
+            const validation = canOrderQuantity(stockData, item.quantity);
+
+            if (!validation.canOrder) {
+              stockValidationErrors.push(`${item.item_name}: ${validation.message}`);
+            }
+          } catch (error) {
+            console.warn(`Could not validate stock for ${item.item_name}:`, error);
+            // Continue with submission even if stock check fails
+          }
+        }
+      }
+
+      // If there are stock validation errors, warn the user but allow submission
+      if (stockValidationErrors.length > 0) {
+        const proceed = window.confirm(
+          `Stock validation warnings:\n\n${stockValidationErrors.join(
+            '\n',
+          )}\n\nDo you want to proceed anyway?`,
+        );
+
+        if (!proceed) {
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       const newItems = validItems.filter((item) => item.type === 'new');
@@ -235,6 +274,22 @@ const CartDrawer: React.FC = () => {
     const [localCost, setLocalCost] = useState((item.estimated_cost || 0).toString());
     const [isCostEditing, setIsCostEditing] = useState(false);
 
+    // Stock checking for reorder items
+    const {
+      data: stockData,
+      isLoading: stockLoading,
+      isError: stockError,
+    } = useInventoryStock(
+      item.type === 'reorder' && item.inventory_item_id ? item.inventory_item_id : null,
+      {
+        enabled: item.type === 'reorder' && !!item.inventory_item_id,
+        refetchInterval: 30000, // Check stock every 30 seconds
+      },
+    );
+
+    // Calculate stock validation for current quantity
+    const stockValidation = stockData ? canOrderQuantity(stockData, item.quantity) : null;
+
     // Update local state when item quantity changes externally (e.g., from buttons)
     React.useEffect(() => {
       if (!isEditing) {
@@ -259,7 +314,16 @@ const CartDrawer: React.FC = () => {
 
     const handleQuantityInputBlur = () => {
       setIsEditing(false);
-      const finalQuantity = parseInt(localQuantity) || 0;
+      let finalQuantity = parseInt(localQuantity) || 0;
+
+      // Validate against stock for reorder items
+      if (item.type === 'reorder' && stockValidation && !stockValidation.canOrder) {
+        // Automatically adjust to max available if exceeding stock
+        if (stockValidation.maxAvailable > 0 && finalQuantity > stockValidation.maxAvailable) {
+          finalQuantity = stockValidation.maxAvailable;
+          setLocalQuantity(finalQuantity.toString());
+        }
+      }
 
       // If quantity is 0 when user finishes editing, remove the item
       if (finalQuantity === 0) {
@@ -316,7 +380,7 @@ const CartDrawer: React.FC = () => {
             <Typography variant="subtitle2" fontWeight={600}>
               {cartHelpers.getItemDisplayName(item)}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap' }}>
               <Chip
                 label={
                   item.type === 'new'
@@ -337,6 +401,62 @@ const CartDrawer: React.FC = () => {
                 size="small"
               />
               <Chip label={item.unit_of_measure} variant="outlined" size="small" />
+
+              {/* Stock status indicator for reorder items */}
+              {item.type === 'reorder' && stockData && (
+                <Tooltip title={stockData.stock_message}>
+                  <Chip
+                    icon={
+                      stockValidation?.canOrder ? (
+                        <CheckCircleIcon />
+                      ) : stockData.available_quantity <= 0 ? (
+                        <ErrorIcon />
+                      ) : (
+                        <WarningIcon />
+                      )
+                    }
+                    label={
+                      stockValidation?.canOrder
+                        ? `✓ Available (${stockData.available_quantity})`
+                        : stockData.available_quantity <= 0
+                        ? 'Out of Stock'
+                        : `Limited (${stockData.available_quantity})`
+                    }
+                    color={
+                      stockValidation?.canOrder
+                        ? 'success'
+                        : stockData.available_quantity <= 0
+                        ? 'error'
+                        : 'warning'
+                    }
+                    size="small"
+                    variant="outlined"
+                  />
+                </Tooltip>
+              )}
+
+              {/* Loading indicator for stock check */}
+              {item.type === 'reorder' && stockLoading && (
+                <Chip
+                  icon={<CircularProgress size={12} />}
+                  label="Checking stock..."
+                  size="small"
+                  variant="outlined"
+                />
+              )}
+
+              {/* Error indicator for stock check */}
+              {item.type === 'reorder' && stockError && (
+                <Tooltip title="Unable to check stock availability">
+                  <Chip
+                    icon={<ErrorIcon />}
+                    label="Stock check failed"
+                    color="error"
+                    size="small"
+                    variant="outlined"
+                  />
+                </Tooltip>
+              )}
             </Box>
             {item.description && (
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -370,16 +490,55 @@ const CartDrawer: React.FC = () => {
               onChange={(e) => handleQuantityInputChange(e.target.value)}
               onBlur={handleQuantityInputBlur}
               onKeyPress={handleQuantityKeyPress}
-              sx={{ width: 80 }}
+              sx={{
+                width: 80,
+                '& .MuiOutlinedInput-root': {
+                  // Add red border if quantity exceeds available stock
+                  ...(item.type === 'reorder' &&
+                    stockValidation &&
+                    !stockValidation.canOrder && {
+                      '& fieldset': {
+                        borderColor: theme.palette.error.main,
+                      },
+                    }),
+                },
+              }}
               inputProps={{ min: 0, style: { textAlign: 'center' } }}
+              error={item.type === 'reorder' && stockValidation ? !stockValidation.canOrder : false}
             />
             <IconButton
               size="small"
-              onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+              onClick={() => {
+                const newQuantity = item.quantity + 1;
+                // Check stock limits for reorder items
+                if (
+                  item.type === 'reorder' &&
+                  stockValidation &&
+                  newQuantity > stockValidation.maxAvailable &&
+                  stockValidation.maxAvailable > 0
+                ) {
+                  // Don't allow exceeding available stock
+                  return;
+                }
+                handleQuantityChange(item.id, newQuantity);
+              }}
+              disabled={
+                item.type === 'reorder' && stockValidation
+                  ? item.quantity >= stockValidation.maxAvailable &&
+                    stockValidation.maxAvailable > 0
+                  : false
+              }
             >
               <AddIcon fontSize="small" />
             </IconButton>
           </Box>
+
+          {/* Stock validation message */}
+          {item.type === 'reorder' && stockValidation && !stockValidation.canOrder && (
+            <Typography variant="caption" color="error" sx={{ fontSize: '0.7rem' }}>
+              {stockValidation.message}
+            </Typography>
+          )}
 
           <TextField
             size="small"

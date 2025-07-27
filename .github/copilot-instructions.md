@@ -75,7 +75,14 @@ const solveProblem = async (issue: string) => {
 
 **Database & Data Tools:**
 
-- `sql_execute` - Direct SQL query execution and validation
+- `mssql_*` - **DIRECT DATABASE ACCESS**: Use MSSQL VS Code extension for real-time database operations
+  - `mssql_connect` - Connect to H10CM database (Server: H10CM, Database: H10CM)
+  - `mssql_run_query` - Execute SQL queries directly against the database
+  - `mssql_list_tables` - List all tables in the database
+  - `mssql_list_procedures` - List all stored procedures
+  - `mssql_change_database` - Switch between databases if needed
+  - **CRITICAL**: Always use these tools for database operations instead of file-based SQL execution
+- `sql_execute` - Legacy SQL query execution and validation (use mssql\_\* tools instead)
 - `validate_procedures` - Stored procedure testing and verification
 - `data_integrity` - Multi-tenant data consistency checks
 - `backup_restore` - Database state management for testing
@@ -205,6 +212,130 @@ const implementDatabaseFeature = async (feature) => {
   });
 };
 ```
+
+## GitHub CLI Issue Management
+
+### Automatic Issue Closing Workflow
+
+**CRITICAL**: When completing any bug fix, feature implementation, or resolving reported issues, **ALWAYS use GitHub CLI to close the corresponding GitHub issues** with appropriate resolution comments.
+
+### GitHub CLI Setup
+
+**Path Configuration**: Add `C:\Program Files\GitHub CLI` to system PATH:
+
+1. Press `Win + R`, type `sysdm.cpl`, press Enter
+2. Click **"Advanced"** tab → **"Environment Variables..."**
+3. System Variables → Select **"Path"** → **"Edit..."** → **"New"**
+4. Add: `C:\Program Files\GitHub CLI`
+5. **Restart PowerShell/VS Code** for changes to take effect
+
+**Authentication Check**:
+
+```bash
+gh auth status  # Verify authentication
+gh auth login   # If not authenticated
+```
+
+### Issue Closing Patterns
+
+**For Bug Fixes**:
+
+```bash
+gh issue close [ISSUE_NUMBER] --comment "✅ RESOLVED: [Brief description of fix]. [Technical details of what was changed and why]."
+```
+
+**For Feature Implementations**:
+
+```bash
+gh issue close [ISSUE_NUMBER] --comment "✅ IMPLEMENTED: [Feature description]. [Implementation details and how to use]."
+```
+
+**For Invalid/Duplicate Issues**:
+
+```bash
+gh issue close [ISSUE_NUMBER] --comment "❌ [INVALID/DUPLICATE]: [Reason why issue is invalid or reference to duplicate]."
+```
+
+**For Test Issues**:
+
+```bash
+gh issue close [ISSUE_NUMBER] --comment "🧪 TEST ISSUE: [Description of what was tested]. [Results and system status]."
+```
+
+### Workflow Integration
+
+**Step 1: Identify Related Issues**
+
+- Check if the current work relates to any open GitHub issues
+- Look for issues created by automatic error reporting
+- Review manual issues that may be addressed by current changes
+
+**Step 2: Complete Implementation**
+
+- Implement the fix/feature using multi-tool approach
+- Validate the solution thoroughly
+- Test affected functionality
+
+**Step 3: Close Issues with Context**
+
+```bash
+# Example: After fixing a database procedure bug
+gh issue close 17 --comment "✅ RESOLVED: Fixed circular dependency in usp_GetSystemStatistics stored procedure. Removed WHERE @IsSystemAdmin = 1 clause that prevented checking admin existence. API endpoint /api/users now works correctly."
+
+# Example: After implementing a feature
+gh issue close 25 --comment "✅ IMPLEMENTED: Added cart quantity validation with real-time inventory checking. Users now see available stock before adding items to cart. Updated CartDrawer.tsx and added inventory stock checking API endpoint."
+
+# Example: For test/invalid issues
+gh issue close 18 --comment "❌ NOT A REAL ISSUE: Port conflict caused by starting server while already running. This is user error during testing, not an application bug."
+```
+
+**Step 4: Document Resolution**
+
+- Update any related documentation
+- Store solution patterns in memory for future reference
+- Update copilot instructions if new patterns emerge
+
+### Issue Closing Best Practices
+
+1. **Be Specific**: Include technical details about what was changed
+2. **Reference Files**: Mention specific files or components modified
+3. **Include Testing**: Note what was tested to verify the fix
+4. **Use Emojis**: Visual indicators help categorize closure reasons
+5. **Cross-Reference**: Link to related issues if applicable
+
+### Common Issue Categories
+
+**Auto-Generated Issues** (from error reporting system):
+
+- Usually have `[AUTO]` prefix
+- Include detailed error context and stack traces
+- Close with technical fix details
+
+**Manual Bug Reports**:
+
+- User-reported issues
+- Close with user-friendly explanation and verification steps
+
+**Feature Requests**:
+
+- Enhancement requests
+- Close with implementation details and usage instructions
+
+**Test/Development Issues**:
+
+- Created during testing or development
+- Close with test results and system status
+
+### Integration with Error Reporting
+
+When the automatic error reporting system creates GitHub issues:
+
+1. **Investigate** the automatically reported error
+2. **Fix** the underlying issue using standard workflows
+3. **Close** the auto-generated issue with technical details
+4. **Verify** no similar errors occur after the fix
+
+This ensures automatic error reports are properly resolved and don't accumulate as noise in the issue tracker.
 
 **Pattern 2: Multi-Tenant Security Validation**
 
@@ -375,12 +506,20 @@ Set-Location "c:\Web Development\H10CM\api"
 npm run dev
 ```
 
+**CRITICAL: API Restart Required After Code Changes:**
+
+- **Always restart the API server after making code changes** - Node.js doesn't auto-reload
+- Kill existing API process (Ctrl+C) and restart with `npm run dev` or `npm start`
+- **Database changes require API restart** to reload stored procedure references
+- **Frontend changes auto-reload** with Vite hot module replacement
+
 **Development-Specific Tool Usage:**
 
 - Use `memory` to recall development patterns and shortcuts
 - Use `context7` to maintain development session state
 - Use `playwright` for local UI testing and validation
 - Apply comprehensive tool orchestration for all changes
+- Use `mssql_*` tools for direct database operations instead of file-based SQL
 - Enable detailed error logging and stack traces
 - Activate hot-reload for both frontend and backend
 - Use local database connection (127.0.0.1)

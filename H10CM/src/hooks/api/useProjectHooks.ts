@@ -94,14 +94,23 @@ export const useUpdateProject = () => {
   return useMutation<Project, Error, Project>({
     mutationFn: updateProject,
     onSuccess: (data) => {
+      console.log('🎉 useUpdateProject: Project updated successfully:', data);
+      
+      // Handle different response formats - API might return array or object
+      const projectData = Array.isArray(data) ? data[0] : data;
+      if (!projectData || !projectData.project_id) {
+        console.error('❌ useUpdateProject: Invalid project data returned from API:', data);
+        return;
+      }
+      
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['project', data.project_id.toString()] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectData.project_id.toString()] });
       
       // Show success notification for status updates
-      projectNotifications.statusUpdated(data.project_name, data.status);
+      projectNotifications.statusUpdated(projectData.project_name, projectData.status);
     },
     onError: (error) => {
-      console.error('Error updating project:', error);
+      console.error('❌ useUpdateProject: Error updating project:', error);
       projectNotifications.apiError('update project', error.message);
     },
   });

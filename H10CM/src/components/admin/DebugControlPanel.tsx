@@ -9,7 +9,6 @@ import {
   Button,
   Alert,
   AlertTitle,
-  Divider,
   Chip,
   Grid,
   Card,
@@ -19,28 +18,24 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  List,
-  ListItem,
-  ListItemText,
   IconButton,
   Tooltip,
   Tabs,
   Tab,
   Stack,
   CircularProgress,
-  LinearProgress,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
 } from '@mui/material';
 import {
   BugReport,
   Settings,
   Refresh,
-  Delete,
   Info,
   Error as ErrorIcon,
   Code,
@@ -55,9 +50,17 @@ import {
   TrendingDown as TrendingDownIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
-  Memory as MemoryIcon,
+  GitHub as GitHubIcon,
+  Send as SendIcon,
+  OpenInNew as OpenInNewIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import { debugService, DebugSettings } from '../../services/debugService';
+import {
+  githubIntegrationService,
+  GitHubConfig,
+  ErrorContext,
+} from '../../services/githubIntegrationService';
 import { toast } from 'react-hot-toast';
 
 interface DebugControlPanelProps {
@@ -428,6 +431,389 @@ const TestingToolsTabPlaceholder = () => (
   </Box>
 );
 
+// GitHub Integration Tab Component
+const GitHubIntegrationTab = () => {
+  const [githubConfig, setGithubConfig] = useState<GitHubConfig | null>(null);
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<
+    'checking' | 'connected' | 'error' | 'unconfigured' | 'no-token'
+  >('unconfigured');
+  const [connectionError, setConnectionError] = useState<string>('');
+  const [autoReportingEnabled, setAutoReportingEnabled] = useState(false);
+  const [recentIssues, setRecentIssues] = useState<any[]>([]);
+  const [stats, setStats] = useState({ totalIssues: 0, openIssues: 0, closedIssues: 0 });
+
+  useEffect(() => {
+    loadGitHubConfig();
+  }, []);
+
+  const loadGitHubConfig = async () => {
+    try {
+      const config = await githubIntegrationService.getConfig();
+      setGithubConfig(config);
+      setIsConfigured(!!config.owner && !!config.repo);
+      setAutoReportingEnabled(config.autoCreateIssues || false);
+
+      if (config.owner && config.repo) {
+        checkConnection();
+        loadRecentIssues();
+      }
+    } catch (error) {
+      console.error('Failed to load GitHub config:', error);
+    }
+  };
+  const checkConnection = async () => {
+    setConnectionStatus('checking');
+    setConnectionError('');
+    try {
+      const result = await githubIntegrationService.testConnection();
+      if (result.success) {
+        setConnectionStatus('connected');
+        setConnectionError('');
+      } else {
+        // Check for specific error types
+        if (result.message.includes('Bad credentials') || result.message.includes('token')) {
+          setConnectionStatus('no-token');
+          setConnectionError('GitHub token not configured on server');
+        } else {
+          setConnectionStatus('error');
+          setConnectionError(result.message);
+        }
+      }
+    } catch (error) {
+      setConnectionStatus('error');
+      setConnectionError(error instanceof Error ? error.message : 'Unknown connection error');
+    }
+  };
+
+  const loadRecentIssues = async () => {
+    try {
+      const issues = await githubIntegrationService.getRecentIssues();
+      setRecentIssues(issues.slice(0, 5)); // Show only 5 recent issues
+
+      const openCount = issues.filter((issue) => issue.state === 'open').length;
+      const closedCount = issues.filter((issue) => issue.state === 'closed').length;
+      setStats({
+        totalIssues: issues.length,
+        openIssues: openCount,
+        closedIssues: closedCount,
+      });
+    } catch (error) {
+      console.error('Failed to load recent issues:', error);
+    }
+  };
+
+  const handleConfigSave = async (newConfig: Partial<GitHubConfig>) => {
+    setIsLoading(true);
+    try {
+      await githubIntegrationService.updateConfig(newConfig);
+      await loadGitHubConfig();
+      toast.success('GitHub configuration saved successfully');
+    } catch (error) {
+      toast.error('Failed to save GitHub configuration');
+      console.error('Failed to save config:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTestError = async () => {
+    setIsLoading(true);
+    try {
+      const testError: ErrorContext = {
+        message: 'Test error from Debug Control Panel',
+        stack: 'Error: Test error\n  at DebugControlPanel\n  at handleTestError',
+        timestamp: new Date().toISOString(),
+        severity: 'medium',
+        errorType: 'frontend',
+        category: 'bug',
+        component: 'DebugControlPanel',
+        userAgent: navigator.userAgent,
+        url: window.location.href,
+        userId: 'test-user',
+        sessionId: 'test-session',
+        debugSettings: {},
+        additionalContext: {
+          test: true,
+          debugMode: true,
+          feature: 'GitHub Integration Test',
+        },
+      };
+
+      const issue = await githubIntegrationService.createErrorIssue(testError);
+      toast.success(`Test issue created: #${issue.number}`);
+      await loadRecentIssues();
+    } catch (error) {
+      toast.error('Failed to create test issue');
+      console.error('Failed to create test issue:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleAutoReporting = async (enabled: boolean) => {
+    try {
+      await handleConfigSave({ autoCreateIssues: enabled });
+      setAutoReportingEnabled(enabled);
+
+      if (enabled) {
+        githubIntegrationService.enableAutoErrorCapture();
+        toast.success('Auto error reporting enabled');
+      } else {
+        githubIntegrationService.disableAutoErrorCapture();
+        toast.success('Auto error reporting disabled');
+      }
+    } catch (error) {
+      toast.error('Failed to update auto reporting setting');
+    }
+  };
+  const getConnectionStatusChip = () => {
+    const statusConfig = {
+      checking: {
+        color: 'info' as const,
+        icon: <CircularProgress size={16} />,
+        label: 'Checking...',
+      },
+      connected: { color: 'success' as const, icon: <CheckCircleIcon />, label: 'Connected' },
+      error: { color: 'error' as const, icon: <ErrorIcon />, label: 'Connection Error' },
+      'no-token': { color: 'warning' as const, icon: <WarningIcon />, label: 'Token Required' },
+      unconfigured: { color: 'default' as const, icon: <GitHubIcon />, label: 'Not Configured' },
+    };
+
+    const config = statusConfig[connectionStatus];
+    return <Chip icon={config.icon} label={config.label} color={config.color} size="small" />;
+  };
+
+  return (
+    <Box>
+      {/* Configuration Section */}
+      <Card sx={{ mb: 3 }}>
+        <CardHeader
+          title="GitHub Configuration"
+          subheader="Configure automatic issue creation for errors and debugging"
+          action={getConnectionStatusChip()}
+        />
+        <CardContent>
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Repository Owner"
+                value={githubConfig?.owner || ''}
+                onChange={(e) => setGithubConfig((prev) => ({ ...prev!, owner: e.target.value }))}
+                placeholder="e.g., username or organization"
+                disabled={isLoading}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Repository Name"
+                value={githubConfig?.repo || ''}
+                onChange={(e) => setGithubConfig((prev) => ({ ...prev!, repo: e.target.value }))}
+                placeholder="e.g., H10CM"
+                disabled={isLoading}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoReportingEnabled}
+                    onChange={(e) => handleToggleAutoReporting(e.target.checked)}
+                    disabled={isLoading || !isConfigured}
+                  />
+                }
+                label="Enable automatic error reporting"
+              />
+            </Grid>
+            {/* Error Display */}
+            {(connectionStatus === 'error' || connectionStatus === 'no-token') &&
+              connectionError && (
+                <Grid item xs={12}>
+                  <Alert
+                    severity={connectionStatus === 'no-token' ? 'warning' : 'error'}
+                    sx={{ mt: 1 }}
+                  >
+                    <AlertTitle>
+                      {connectionStatus === 'no-token'
+                        ? 'GitHub Token Required'
+                        : 'Connection Error'}
+                    </AlertTitle>
+                    {connectionError}
+                    {connectionStatus === 'no-token' && (
+                      <Typography variant="body2" sx={{ mt: 1 }}>
+                        Please set the GITHUB_TOKEN environment variable on the server and restart
+                        the API.
+                      </Typography>
+                    )}
+                  </Alert>
+                </Grid>
+              )}
+            <Grid item xs={12}>
+              <Stack direction="row" spacing={2}>
+                <Button
+                  variant="contained"
+                  onClick={() => handleConfigSave(githubConfig || {})}
+                  disabled={isLoading || !githubConfig?.owner || !githubConfig?.repo}
+                  startIcon={isLoading ? <CircularProgress size={20} /> : <GitHubIcon />}
+                >
+                  Save Configuration
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={checkConnection}
+                  disabled={isLoading || !isConfigured}
+                  startIcon={<Refresh />}
+                >
+                  Test Connection
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={handleTestError}
+                  disabled={isLoading || !isConfigured || connectionStatus !== 'connected'}
+                  startIcon={<SendIcon />}
+                  color="warning"
+                >
+                  Create Test Issue
+                </Button>
+              </Stack>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Statistics Section */}
+      {isConfigured && connectionStatus === 'connected' && (
+        <Grid container spacing={3} sx={{ mb: 3 }}>
+          <Grid item xs={12} md={4}>
+            <DebugSummaryCard
+              title="Total Issues"
+              value={stats.totalIssues}
+              icon={GitHubIcon}
+              color="primary"
+            />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <DebugSummaryCard
+              title="Open Issues"
+              value={stats.openIssues}
+              icon={ErrorIcon}
+              color="warning"
+            />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <DebugSummaryCard
+              title="Closed Issues"
+              value={stats.closedIssues}
+              icon={CheckCircleIcon}
+              color="success"
+            />
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Recent Issues Section */}
+      {isConfigured && connectionStatus === 'connected' && recentIssues.length > 0 && (
+        <Card>
+          <CardHeader
+            title="Recent Issues"
+            subheader="Latest GitHub issues created from error reports"
+            action={
+              <Button startIcon={<Refresh />} onClick={loadRecentIssues} disabled={isLoading}>
+                Refresh
+              </Button>
+            }
+          />
+          <CardContent>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>#</TableCell>
+                    <TableCell>Title</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Created</TableCell>
+                    <TableCell>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {recentIssues.map((issue) => (
+                    <TableRow key={issue.number}>
+                      <TableCell>#{issue.number}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
+                          {issue.title}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={issue.state}
+                          color={issue.state === 'open' ? 'warning' : 'success'}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">
+                          {new Date(issue.created_at).toLocaleDateString()}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip title="View on GitHub">
+                          <IconButton
+                            size="small"
+                            onClick={() => window.open(issue.html_url, '_blank')}
+                          >
+                            <OpenInNewIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Copy URL">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              navigator.clipboard.writeText(issue.html_url);
+                              toast.success('Issue URL copied to clipboard');
+                            }}
+                          >
+                            <ContentCopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Setup Instructions */}
+      {!isConfigured && (
+        <Alert severity="info" sx={{ mt: 3 }}>
+          <AlertTitle>Setup Required</AlertTitle>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            To enable GitHub integration, you need to:
+          </Typography>
+          <Box component="ol" sx={{ pl: 2, mb: 2 }}>
+            <li>Create a GitHub Personal Access Token with 'repo' permissions</li>
+            <li>Set the GITHUB_TOKEN environment variable on the server (e.g., in .env file)</li>
+            <li>Restart the API server to load the new environment variable</li>
+            <li>Configure the repository owner and name above</li>
+            <li>Test the connection to ensure proper authentication</li>
+            <li>Enable automatic error reporting if desired</li>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            <strong>Note:</strong> The API server must be restarted after adding the GITHUB_TOKEN
+            environment variable.
+          </Typography>
+        </Alert>
+      )}
+    </Box>
+  );
+};
+
 const DebugControlPanel: React.FC<DebugControlPanelProps> = ({ currentUser }) => {
   const [debugSettings, setDebugSettings] = useState<DebugSettings>(
     debugService.getDebugSettings(),
@@ -637,6 +1023,7 @@ const DebugControlPanel: React.FC<DebugControlPanelProps> = ({ currentUser }) =>
             <Tab label="Network" icon={<NetworkIcon />} iconPosition="start" />
             <Tab label="Database" icon={<DatabaseIcon />} iconPosition="start" />
             <Tab label="Testing" icon={<TestingIcon />} iconPosition="start" />
+            <Tab label="GitHub Integration" icon={<GitHubIcon />} iconPosition="start" />
           </Tabs>
         </Box>
 
@@ -657,6 +1044,7 @@ const DebugControlPanel: React.FC<DebugControlPanelProps> = ({ currentUser }) =>
           {activeTab === 3 && <NetworkDebugTabPlaceholder />}
           {activeTab === 4 && <DatabaseDebugTabPlaceholder />}
           {activeTab === 5 && <TestingToolsTabPlaceholder />}
+          {activeTab === 6 && <GitHubIntegrationTab />}
         </Box>
       </Paper>
 

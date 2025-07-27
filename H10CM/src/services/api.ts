@@ -26,7 +26,7 @@ apiClient.interceptors.request.use((config) => {
 // Add response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     // Extract error message from response
     const errorMessage = error.response?.data?.error || 
                         error.response?.data?.message || 
@@ -41,6 +41,38 @@ apiClient.interceptors.response.use(
       message: errorMessage,
       data: error.response?.data
     });
+    
+    // Automatically report API errors to GitHub if enabled
+    try {
+      const { githubIntegrationService } = await import('./githubIntegrationService');
+      const config = githubIntegrationService.getConfig();
+      
+      if (config.enabled && config.autoCreateIssues && error.response?.status >= 500) {
+        // Only report server errors (5xx) automatically
+        const errorContext = githubIntegrationService.captureError(error, {
+          errorType: 'api',
+          severity: error.response?.status >= 500 ? 'high' : 'medium',
+          category: 'bug',
+          apiEndpoint: error.config?.url,
+          httpStatus: error.response?.status,
+          requestData: error.config?.data ? JSON.parse(error.config.data) : undefined,
+          responseData: error.response?.data,
+          additionalContext: {
+            method: error.config?.method?.toUpperCase(),
+            baseURL: error.config?.baseURL,
+            headers: error.config?.headers,
+            autoReported: true,
+            captureMethod: 'axios.response.interceptor',
+            automatic: true,
+          },
+        });
+
+        await githubIntegrationService.createIssueFromError(errorContext);
+        console.log('✅ API error automatically reported to GitHub');
+      }
+    } catch (reportError) {
+      console.warn('Failed to auto-report API error to GitHub:', reportError);
+    }
     
     // Show user-friendly notification for API errors
     if (error.response?.status >= 400) {
@@ -104,6 +136,12 @@ export const fetchProjectById = async (projectId: string | undefined): Promise<P
       return result;
     }
     
+    // Handle standardized response format - extract the actual project data
+    if (data && data.data) {
+      console.log('🔍 fetchProjectById: Extracting project data from standardized response:', data.data);
+      return data.data;
+    }
+    
     console.log('🔍 fetchProjectById: Returning direct response:', data);
     return data;
   } catch (error) {
@@ -138,12 +176,14 @@ export const fetchProjectById = async (projectId: string | undefined): Promise<P
 
 export const createProject = async (project: Omit<Project, 'project_id' | 'date_created'>): Promise<Project> => {
   const { data } = await apiClient.post('/projects', project);
-  return data;
+  // Handle standardized response format - data is wrapped in a success response
+  return data.data || data;
 };
 
 export const updateProject = async (project: Project): Promise<Project> => {
   const { data } = await apiClient.put(`/projects/${project.project_id}`, project);
-  return data;
+  // Handle standardized response format - data is wrapped in a success response
+  return data.data || data;
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {
@@ -154,7 +194,13 @@ export const fetchProjectSteps = async (projectId: string | undefined): Promise<
   if (!projectId) return [];
   const response = await apiClient.get(`/projects/${projectId}/steps`);
   const apiData = response.data;
-  // Now, access the nested 'data' property which contains the array of steps
+  
+  // Handle the standardized response format with nested data structure
+  if (apiData.success && apiData.data && Array.isArray(apiData.data.data)) {
+    return apiData.data.data;
+  }
+  
+  // Fallback for direct array response or legacy format
   return Array.isArray(apiData.data) ? apiData.data : [];
 };
 
@@ -177,10 +223,22 @@ export const fetchTrackedItems = async (projectId: string | undefined): Promise<
   console.log('Fetching tracked items for project:', projectId);
   const response = await apiClient.get(`/projects/${projectId}/tracked-items`);
   console.log('API response:', response.data);
-  const data = response.data.data;
-  console.log('Extracted data:', data);
+  // Handle standardized response format: { success: true, data: { data: Array } }
+  const nestedData = response.data.data;
+  console.log('Nested data:', nestedData);
+  const actualData = nestedData?.data || nestedData;
+  console.log('Actual array data:', actualData);
+  console.log('Is actual data an array?', Array.isArray(actualData));
+  console.log('Actual data length:', actualData?.length);
+  
+  // Log the structure of the first item to understand the data format
+  if (Array.isArray(actualData) && actualData.length > 0) {
+    console.log('First item structure:', actualData[0]);
+    console.log('First item keys:', Object.keys(actualData[0]));
+  }
+  
   // Ensure data is an array, otherwise return an empty array
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(actualData) ? actualData : [];
 };
 
 export const fetchTrackedItemDetails = async (itemId: string): Promise<TrackedItem> => {
@@ -480,7 +538,7 @@ export const getPendingOrdersSummary = async (): Promise<PendingOrderSummary> =>
 };
 
 export const deletePendingOrder = async (pending_order_id: number): Promise<void> => {
-  await apiClient.delete(`/pending-orders/${pending_order_id}`);
+  await apiClient.delete(`/orders/${pending_order_id}`);
 };
 
 // --- Task Management API Functions ---
@@ -724,6 +782,30 @@ export const markOrderAsReceived = async (orderId: number) => {
     return data;
   } catch (error) {
     console.error('Error marking order as received:', error);
+    throw error;
+  }
+};
+
+// Check inventory stock levels and availability
+export const checkInventoryStock = async (inventoryItemId: number): Promise<{
+  success: boolean;
+  inventory_item_id: number;
+  item_name: string;
+  part_number: string;
+  current_stock_level: number;
+  pending_orders_quantity: number;
+  available_quantity: number;
+  stock_status: 'in_stock' | 'low_stock' | 'out_of_stock';
+  reorder_point: number | null;
+  max_stock_level: number | null;
+  can_order: boolean;
+  stock_message: string;
+}> => {
+  try {
+    const { data } = await apiClient.get(`/inventory-items/${inventoryItemId}/stock`);
+    return data;
+  } catch (error) {
+    console.error('Error checking inventory stock:', error);
     throw error;
   }
 };

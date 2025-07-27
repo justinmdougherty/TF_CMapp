@@ -108,7 +108,7 @@ const AccessRequestSplash: React.FC<AccessRequestSplashProps> = ({
           <Box textAlign="center" mb={3}>
             <SecurityIcon sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
             <Typography variant="h4" gutterBottom>
-              H10CM Production Management System
+              H10 Production Management System
             </Typography>
             <Typography variant="h6" color="text.secondary">
               Access Required

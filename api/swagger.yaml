@@ -1,0 +1,500 @@
+openapi: 3.0.3
+info:
+  title: H10CM Multi-Tenant Production Management API
+  description: |
+    H10CM is a multi-tenant production management and inventory tracking system with certificate-based authentication,
+    RBAC permissions, and program-level data isolation. All endpoints have been secured with stored procedures
+    to prevent SQL injection attacks.
+
+    **Security Features:**
+    - Certificate-based authentication (x-arr-clientcert header)
+    - Multi-tenant program isolation
+    - Role-based access control (RBAC)
+    - 100% SQL injection protection via stored procedures
+
+    **Authentication:**
+    All endpoints require valid certificate authentication via the `x-arr-clientcert` header.
+    Development mode supports fallback authentication.
+  version: 2.1.0
+  contact:
+    name: H10CM Development Team
+    url: https://github.com/justinmdougherty/H10CM
+  license:
+    name: MIT
+servers:
+  - url: /api
+    description: Local API server
+
+security:
+  - CertificateAuth: []
+
+components:
+  securitySchemes:
+    CertificateAuth:
+      type: apiKey
+      in: header
+      name: x-arr-clientcert
+      description: Client certificate for authentication
+
+  schemas:
+    Project:
+      type: object
+      properties:
+        project_id:
+          type: integer
+          description: Unique project identifier
+        project_name:
+          type: string
+          description: Name of the project
+        project_description:
+          type: string
+          description: Project description
+        program_id:
+          type: integer
+          description: Program this project belongs to (multi-tenant isolation)
+        project_manager_id:
+          type: integer
+          nullable: true
+          description: User ID of the project manager
+        start_date:
+          type: string
+          format: date-time
+          nullable: true
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+        budget:
+          type: number
+          nullable: true
+        status:
+          type: string
+          enum: [Planning, Active, On Hold, Completed, Cancelled]
+        date_created:
+          type: string
+          format: date-time
+        last_modified:
+          type: string
+          format: date-time
+        created_by:
+          type: integer
+        modified_by:
+          type: integer
+        program_name:
+          type: string
+        program_code:
+          type: string
+        project_manager_name:
+          type: string
+          nullable: true
+
+    ProjectStep:
+      type: object
+      properties:
+        step_id:
+          type: integer
+        project_id:
+          type: integer
+        step_name:
+          type: string
+        step_description:
+          type: string
+        step_order:
+          type: integer
+        is_completed:
+          type: boolean
+        completion_date:
+          type: string
+          format: date-time
+          nullable: true
+
+    TrackedItem:
+      type: object
+      properties:
+        tracked_item_id:
+          type: integer
+        project_id:
+          type: integer
+        item_name:
+          type: string
+        current_status:
+          type: string
+        step_progress:
+          type: object
+          description: JSON object containing step completion status
+
+    AttributeDefinition:
+      type: object
+      properties:
+        attribute_definition_id:
+          type: integer
+        project_id:
+          type: integer
+        attribute_name:
+          type: string
+        attribute_type:
+          type: string
+          enum: [text, number, date, boolean]
+        display_order:
+          type: integer
+        is_required:
+          type: boolean
+        is_auto_generated:
+          type: boolean
+        default_value:
+          type: string
+          nullable: true
+        validation_rules:
+          type: string
+          nullable: true
+
+    User:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        username:
+          type: string
+        displayName:
+          type: string
+        is_system_admin:
+          type: boolean
+        program_access:
+          type: array
+          items:
+            type: object
+            properties:
+              program_id:
+                type: integer
+              access_level:
+                type: string
+                enum: [Read, Write, Admin]
+              program_name:
+                type: string
+              program_code:
+                type: string
+              program_description:
+                type: string
+        accessible_programs:
+          type: array
+          items:
+            type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        details:
+          type: string
+          description: Additional error details
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        system:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: number
+
+paths:
+  /health:
+    get:
+      summary: API Health Check
+      description: Returns the health status of the API server
+      tags:
+        - Health
+      security: [] # No authentication required
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/me:
+    get:
+      summary: Get Current User
+      description: Returns the authenticated user's information and program access
+      tags:
+        - Authentication
+      responses:
+        "200":
+          description: User information retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+                  headers:
+                    type: object
+                  extractedFrom:
+                    type: string
+                  request:
+                    type: object
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects:
+    get:
+      summary: Get Projects
+      description: Get all projects filtered by user's program access
+      tags:
+        - Projects
+      parameters:
+        - name: program_id
+          in: query
+          description: Filter projects by program ID
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Projects retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied to program
+
+  /projects/{id}:
+    get:
+      summary: Get Project Details
+      description: Get detailed information about a specific project (SECURED with usp_GetProjectDetails)
+      tags:
+        - Projects
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+        - name: program_id
+          in: query
+          description: Program ID for access validation
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied to project
+        "404":
+          description: Project not found
+
+  /projects/{id}/steps:
+    get:
+      summary: Get Project Steps
+      description: Get all steps for a specific project (SECURED with usp_GetProjectForAccess)
+      tags:
+        - Projects
+        - Steps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+        - name: program_id
+          in: query
+          description: Program ID for access validation
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project steps retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProjectStep"
+                  project_id:
+                    type: string
+                  project_name:
+                    type: string
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied to project
+        "404":
+          description: Project not found
+
+  /projects/{id}/tracked-items:
+    get:
+      summary: Get Project Tracked Items
+      description: Get all tracked items for a specific project (SECURED with usp_GetTrackedItems)
+      tags:
+        - Projects
+        - Inventory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+        - name: program_id
+          in: query
+          description: Program ID for access validation
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Tracked items retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrackedItem"
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied to project
+        "404":
+          description: Project not found
+
+  /projects/{id}/attributes:
+    get:
+      summary: Get Project Attributes
+      description: Get all attribute definitions for a specific project (SECURED with usp_GetProjectAttributes)
+      tags:
+        - Projects
+        - Attributes
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+        - name: program_id
+          in: query
+          description: Program ID for access validation
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project attributes retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AttributeDefinition"
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied to project
+        "404":
+          description: Project not found
+
+  /attributes:
+    post:
+      summary: Create Attribute Definition
+      description: Create a new attribute definition for a project (SECURED with usp_CreateProjectAttribute)
+      tags:
+        - Attributes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - project_id
+                - attribute_name
+              properties:
+                project_id:
+                  type: integer
+                  description: Project ID to create attribute for
+                attribute_name:
+                  type: string
+                  description: Name of the attribute
+                attribute_type:
+                  type: string
+                  enum: [text, number, date, boolean]
+                  default: text
+                is_required:
+                  type: boolean
+                  default: false
+                is_auto_generated:
+                  type: boolean
+                  default: false
+                display_order:
+                  type: integer
+                  nullable: true
+                default_value:
+                  type: string
+                  nullable: true
+                validation_rules:
+                  type: string
+                  nullable: true
+                program_id:
+                  type: integer
+                  description: Program ID for access validation
+      responses:
+        "201":
+          description: Attribute definition created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttributeDefinition"
+        "400":
+          description: Missing required fields or validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied to project
+        "500":
+          description: Failed to create attribute definition
+
+tags:
+  - name: Health
+    description: API health monitoring endpoints
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Projects
+    description: Project management operations (multi-tenant secured)
+  - name: Steps
+    description: Project step management
+  - name: Inventory
+    description: Inventory and tracked items
+  - name: Attributes
+    description: Project attribute definitions

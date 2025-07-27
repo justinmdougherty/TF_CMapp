@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography, Button, Container, Alert } from '@mui/material';
 import { RefreshRounded, HomeRounded } from '@mui/icons-material';
 import { debugService } from '../../services/debugService';
+import { githubIntegrationService } from '../../services/githubIntegrationService';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -23,6 +24,36 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
     console.error('Error Boundary Caught:', error, errorInfo);
     debugService.debugError('Error Boundary Caught:', { error, errorInfo });
     this.setState({ error, errorInfo });
+
+    // Automatically report to GitHub if auto error capture is enabled
+    this.reportErrorToGitHub(error, errorInfo);
+  }
+
+  private async reportErrorToGitHub(error: Error, errorInfo: React.ErrorInfo) {
+    try {
+      const config = githubIntegrationService.getConfig();
+      if (config.enabled && config.autoCreateIssues) {
+        const errorContext = githubIntegrationService.captureError(error, {
+          errorType: 'frontend',
+          severity: 'high', // React errors are typically high severity
+          category: 'bug',
+          component: 'React Error Boundary',
+          additionalContext: {
+            componentStack: errorInfo.componentStack,
+            errorBoundary: true,
+            reactError: true,
+            autoReported: true,
+            captureMethod: 'ErrorBoundary.componentDidCatch',
+            automatic: true,
+          },
+        });
+
+        await githubIntegrationService.createIssueFromError(errorContext);
+        console.log('✅ React error automatically reported to GitHub');
+      }
+    } catch (reportError) {
+      console.warn('Failed to report React error to GitHub:', reportError);
+    }
   }
 
   handleRefresh = () => {
